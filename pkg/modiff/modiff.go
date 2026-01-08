@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -60,15 +61,22 @@ func Run(config *Config) (string, error) {
 	}
 	defer os.RemoveAll(dir)
 
-	logrus.Infof("Setting up repository %s", config.repository)
+	referenceRepo := filepath.Join(dir, "reference")
+	fromRepo := filepath.Join(dir, "from")
+	toRepo := filepath.Join(dir, "to")
 
-	if err := runGit(dir, "init"); err != nil {
+	logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
+	if err := runGit(dir, "clone", "--filter=blob:none", toURL(config.repository), referenceRepo); err != nil {
 		return logErr(err)
 	}
 
-	if err := runGit(
-		dir, "remote", "add", "origin", toURL(config.repository),
-	); err != nil {
+	logrus.Infof("Setting up 'from' repository for '%s' at %s", config.from, fromRepo)
+	if err := runGit(dir, "clone", "--filter=blob:none", "--reference", referenceRepo, "-b", config.from, toURL(config.repository), fromRepo); err != nil {
+		return logErr(err)
+	}
+
+	logrus.Infof("Setting up 'to' repository for '%s' at %s", config.to, toRepo)
+	if err := runGit(dir, "clone", "--filter=blob:none", "--reference", referenceRepo, "-b", config.to, toURL(config.repository), toRepo); err != nil {
 		return logErr(err)
 	}
 
@@ -181,22 +189,46 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 
 func getModules(workDir, from, to string) (modules, error) {
 	// Retrieve all modules
-	before, err := retrieveModules(from, workDir)
+	before, err := retrieveModules(from, filepath.Join(workDir, "from"))
 	if err != nil {
 		return nil, err
 	}
-	after, err := retrieveModules(to, workDir)
+	after, err := retrieveModules(to, filepath.Join(workDir, "to"))
 	if err != nil {
 		return nil, err
 	}
 
+	// Make a list of all the lines we've seen in 
+	// before and in after, so we can skip any lines
+	// which are in both (and therefore have not changed)
+	seenBefore := make(map[string]bool)
+	seenAfter := make(map[string]bool)
+
+	scanner := bufio.NewScanner(strings.NewReader(before))
+	for scanner.Scan() {
+		val := scanner.Text()
+		seenBefore[val] = true
+	}
+	scanner = bufio.NewScanner(strings.NewReader(after))
+	for scanner.Scan() {
+		val := scanner.Text()
+		seenAfter[val] = true
+	}
+
+	logrus.Info("Processing module diffs")
 	// Parse the modules
 	res := modules{}
 	forEach := func(input string, do func(res *entry, version string)) {
 		scanner := bufio.NewScanner(strings.NewReader(input))
 		for scanner.Scan() {
+			val := scanner.Text()
+			if seenBefore[val] && seenAfter[val] {
+				logrus.Debugf("Skipping duplicate line: %s", val)
+				continue
+			}
+
 			// Skip version-less modules, like the local one
-			split := strings.Split(scanner.Text(), " ")
+			split := strings.Split(val, " ")
 			if len(split) < 2 {
 				continue
 			}
@@ -216,15 +248,21 @@ func getModules(workDir, from, to string) (modules, error) {
 
 			name := strings.TrimSpace(split[0])
 			linkPrefix := name
+			logrus.Debugf("Processing module %s", name)
 			// Remove the module name from the link
 			if splitLink := strings.Split(linkPrefix, "/"); len(splitLink) == 4 {
 				// Check if the last part of string is part of the tag.
 				linkPrefixTree := strings.Join(slices.Insert(splitLink, 3, "tree"), "/")
 				url := fmt.Sprintf("https://%s%s%s", linkPrefixTree, "/", strings.TrimSpace(split[1]))
+				logrus.Debugf("  Module %s has an extra segment '%s'; we need to see if it's part of the repository URL", name, splitLink[3])
+				logrus.Debugf("    Checking this by fetching %s", url)
 				// If the url is valid, then we keep the linkPrefix as is
 				client := http.Client{}
 				if valid, err := CheckURLValid(client, url); !valid && err == nil {
 					linkPrefix = strings.Join(splitLink[:3], "/")
+					logrus.Debugf("    It's not; using %s as link prefix", linkPrefix)
+				} else {
+					logrus.Debugf("    It is; using %s as link prefix", linkPrefix)
 				}
 			}
 			version := strings.TrimSpace(split[1])
@@ -262,7 +300,7 @@ func getModules(workDir, from, to string) (modules, error) {
 
 func CheckURLValid(client http.Client, url string) (bool, error) {
 	ctx := context.Background()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, http.NoBody)
 	if err != nil {
 		return false, fmt.Errorf("error while creating request: %w", err)
 	}
@@ -280,23 +318,7 @@ func CheckURLValid(client http.Client, url string) (bool, error) {
 }
 
 func retrieveModules(rev, workDir string) (string, error) {
-	logrus.Infof("Retrieving modules of %s", rev)
-	if err := runGit(
-		workDir, "fetch", "--depth=1", "origin", rev,
-	); err != nil {
-		logrus.Error(err)
-
-		return "", err
-	}
-
-	if err := runGit(
-		workDir, "checkout", "-f", "FETCH_HEAD",
-	); err != nil {
-		logrus.Error(err)
-
-		return "", err
-	}
-
+	logrus.Debugf("Listing go modules in %s", workDir)
 	mods, err := runCmdOutput(
 		workDir, "go", "list", "-mod=readonly", "-m", "all",
 	)
@@ -310,6 +332,7 @@ func retrieveModules(rev, workDir string) (string, error) {
 }
 
 func runGit(dir string, args ...string) error {
+	logrus.Debugf("Running command in %s: git %s", dir, strings.Join(args, " "))
 	return runCmd(dir, "git", args...)
 }
 

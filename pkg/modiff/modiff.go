@@ -66,7 +66,7 @@ func Run(config *Config) (string, error) {
 	toRepo := filepath.Join(dir, "to")
 
 	logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
-	if err := runGit(dir, "clone", "--filter=blob:none", toURL(config.repository), referenceRepo); err != nil {
+	if err := runGit(dir, "clone", "--filter=blob:none", "--bare", toURL(config.repository), referenceRepo); err != nil {
 		return logErr(err)
 	}
 

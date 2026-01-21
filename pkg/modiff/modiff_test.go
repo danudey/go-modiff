@@ -158,7 +158,7 @@ func TestCheckURLValid(t *testing.T) {
 		},
 		{
 			name:     "Invalid URL",
-			url:      "https://github.com/hashicorp/consul/compare/v1.18.0...v1.20.0",
+			url:      "https://github.com/hashicorp/consul/compare/v1.18.0...v9.99.0",
 			expected: false,
 			err:      nil,
 		},

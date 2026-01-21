@@ -3,8 +3,10 @@ package modiff
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -12,6 +14,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -31,6 +34,48 @@ type Config struct {
 	to          string
 	link        bool
 	headerLevel uint
+}
+
+// GoModInfo is the information struct returned from proxy.golang.org
+type GoModInfo struct {
+	Version string    `json:"Version"`
+	Time    time.Time `json:"Time"`
+	Origin  struct {
+		Vcs  string `json:"VCS"`
+		URL  string `json:"URL"`
+		Hash string `json:"Hash"`
+		Ref  string `json:"Ref"`
+	} `json:"Origin"`
+}
+
+func (gm *GoModInfo) isGitHub() bool {
+	return strings.Contains(gm.Origin.URL, "https://github.com/")
+}
+
+func (gm *GoModInfo) commitLink() string {
+	return fmt.Sprintf("%s/commit/%s", gm.Origin.URL, gm.Origin.Hash)
+}
+
+func (gm *GoModInfo) CompareLinkTo(nm GoModInfo) string {
+	if !gm.isGitHub() {
+		return ""
+	}
+	var oldModRef string
+	var newModRef string
+
+	if strings.HasPrefix(gm.Origin.Ref, "refs/") {
+		oldModRef = strings.SplitN(gm.Origin.Ref, "/", 3)[2]
+	} else {
+		oldModRef = gm.Origin.Hash
+	}
+	if strings.HasPrefix(nm.Origin.Ref, "refs/") {
+		newModRef = strings.SplitN(nm.Origin.Ref, "/", 3)[2]
+	} else {
+		newModRef = nm.Origin.Hash
+	}
+	url := fmt.Sprintf("%s/compare/%s...%s", gm.Origin.URL, oldModRef, newModRef)
+	return url
+
 }
 
 // NewConfig creates a new configuration
@@ -93,12 +138,36 @@ func toURL(name string) string {
 	return "https://" + name
 }
 
-func isGitHubURL(name string) bool {
-	return strings.HasPrefix(name, "github.com")
+func isGitHubMod(mod GoModInfo) bool {
+	return strings.Contains(mod.Origin.URL, "https://github.com/")
 }
 
 func sanitizeTag(tag string) string {
 	return strings.TrimSuffix(tag, "+incompatible")
+}
+
+func getGoProxyModInfo(module, version string) (GoModInfo, error) {
+	goModInfoURL := fmt.Sprintf("https://proxy.golang.org/%s/@v/%s.info", module, version)
+	modInfo := GoModInfo{}
+	resp, err := http.Get(goModInfoURL)
+	if err != nil {
+		return modInfo, fmt.Errorf("could not get go module info from golang module proxy: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return modInfo, fmt.Errorf("golang proxy says module version %s@%s does not exist", module, version)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return modInfo, fmt.Errorf("could not get response body from golang module proxy: %w", err)
+	}
+
+	if err := json.Unmarshal(body, &modInfo); err != nil {
+		return modInfo, fmt.Errorf("could not decode response body from golang module proxy: %w", err)
+	}
+	return modInfo, nil
 }
 
 func logErr(msg interface{}) (string, error) {
@@ -112,43 +181,51 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 	var added, removed, changed []string
 	for name, mod := range mods {
 		txt := fmt.Sprintf("- %s: ", name)
-		splitLinkPrefix := strings.Split(mod.linkPrefix, "/")
-		prefixWithTree := fmt.Sprintf("%s/%s", mod.linkPrefix, "tree")
+		var oldModInfo GoModInfo
+		var newModInfo GoModInfo
+		var err error
+
+		if mod.beforeVersion != "" {
+			oldModInfo, err = getGoProxyModInfo(mod.linkPrefix, mod.beforeVersion)
+			if err != nil {
+				logrus.Errorf("could not fetch module info for %s@%s: %w", mod.linkPrefix, mod.beforeVersion, err)
+			}
+		}
+		if mod.afterVersion != "" {
+			newModInfo, err = getGoProxyModInfo(mod.linkPrefix, mod.afterVersion)
+			if err != nil {
+				logrus.Errorf("could not fetch module info for %s@%s: %w", mod.linkPrefix, mod.afterVersion, err)
+			}
+		}
+
 		if mod.beforeVersion == "" { //nolint: gocritic
-			if addLinks && isGitHubURL(mod.linkPrefix) {
+			if addLinks && newModInfo.isGitHub() {
 				// Insert the tree part of the URL at index 3 to account for tag names with slashes
-				if len(splitLinkPrefix) >= 3 {
-					prefixWithTree = strings.Join(slices.Insert(splitLinkPrefix, 3, "tree"), "/")
-				}
-				txt += fmt.Sprintf("[%s](%s/%s)",
-					mod.afterVersion, toURL(prefixWithTree), sanitizeTag(mod.afterVersion))
+				txt += fmt.Sprintf("[%s](%s)",
+					mod.afterVersion, newModInfo.commitLink())
 			} else {
 				txt += mod.afterVersion
 			}
 			added = append(added, txt)
 		} else if mod.afterVersion == "" {
-			if addLinks && isGitHubURL(mod.linkPrefix) {
-				if len(splitLinkPrefix) >= 3 {
-					prefixWithTree = strings.Join(slices.Insert(splitLinkPrefix, 3, "tree"), "/")
-				}
-				txt += fmt.Sprintf("[%s](%s/%s)",
-					mod.beforeVersion, toURL(prefixWithTree), sanitizeTag(mod.beforeVersion))
+			if addLinks && oldModInfo.isGitHub() {
+				txt += fmt.Sprintf("[%s](%s)",
+					mod.beforeVersion, newModInfo.commitLink())
 			} else {
 				txt += mod.beforeVersion
 			}
 			removed = append(removed, txt)
 		} else if mod.beforeVersion != mod.afterVersion {
-			if addLinks && isGitHubURL(mod.linkPrefix) {
-				prefixWithCompare := fmt.Sprintf("%s/%s", mod.linkPrefix, "compare")
-				// Insert tag prefix to the afterVersion to account for tag names with slashes
-				afterVersion := sanitizeTag(mod.afterVersion)
-				if len(splitLinkPrefix) > 3 {
-					prefixWithCompare = strings.Join(slices.Insert(splitLinkPrefix, 3, "compare"), "/")
-					afterVersion = fmt.Sprintf("%s/%s", strings.Join(splitLinkPrefix[3:], "/"), afterVersion)
+			if addLinks && oldModInfo.isGitHub() {
+				comparisonURL := oldModInfo.CompareLinkTo(newModInfo)
+				if comparisonURL == "" {
+					logrus.Warnf("Unable to get comparison information for %s")
+					txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
+				} else {
+				txt += fmt.Sprintf("[%s → %s](%s)",
+					mod.beforeVersion, mod.afterVersion, comparisonURL)
+
 				}
-				txt += fmt.Sprintf("[%s → %s](%s/%s...%s)",
-					mod.beforeVersion, mod.afterVersion, toURL(prefixWithCompare),
-					sanitizeTag(mod.beforeVersion), afterVersion)
 			} else {
 				txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
 			}

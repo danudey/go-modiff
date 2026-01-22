@@ -225,10 +225,10 @@ func logErr(msg any) (string, error) {
 func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 	var added, removed, changed []string
 	for name, mod := range mods {
-		txt := fmt.Sprintf("- %s: ", name)
 		var oldModInfo GoModInfo
 		var newModInfo GoModInfo
 		var err error
+		var txt string
 
 		if mod.beforeVersion != "" {
 			oldModInfo, err = getGoProxyModInfo(mod.linkPrefix, mod.beforeVersion)
@@ -242,6 +242,21 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 				logrus.Errorf("could not fetch module info for %s@%s: %w", mod.linkPrefix, mod.afterVersion, err)
 			}
 		}
+
+		if addLinks {
+			var modURL string
+			if oldModInfo.Origin.URL != "" {
+				modURL = oldModInfo.Origin.URL
+			} else if newModInfo.Origin.URL != "" {
+				modURL = newModInfo.Origin.URL
+			}
+			if modURL != "" {
+				txt = fmt.Sprintf("- [`%s`](%s): ", name, modURL)
+			} else {
+				txt = fmt.Sprintf("- `%s`: ", name)
+			}
+		}
+
 
 		if mod.beforeVersion == "" { //nolint: gocritic
 			if addLinks && newModInfo.isGitHostWeKnow() {

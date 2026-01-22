@@ -49,17 +49,56 @@ type GoModInfo struct {
 }
 
 func (gm *GoModInfo) isGitHub() bool {
-	return strings.Contains(gm.Origin.URL, "https://github.com/")
+	return strings.HasPrefix(gm.Origin.URL, "https://github.com/")
+}
+
+func (gm *GoModInfo) isGoogleSource() bool {
+	return strings.HasPrefix(gm.Origin.URL, "https://go.googlesource.com/")
+}
+
+func (gm *GoModInfo) isGitHostWeKnow() bool {
+	if gm.isGitHub() || gm.isGoogleSource() {
+		return true
+	}
+	return false
 }
 
 func (gm *GoModInfo) commitLink() string {
+	if gm.isGitHub() {
+		return gm.GitHubCommitLink()
+	}
+	if gm.isGoogleSource() {
+		return gm.GoogleSourceCommitLink()
+	}
+	return ""
+}
+
+func (gm *GoModInfo) GitHubCommitLink() string {
 	return fmt.Sprintf("%s/commit/%s", gm.Origin.URL, gm.Origin.Hash)
 }
 
+func (gm *GoModInfo) GoogleSourceCommitLink() string {
+	return fmt.Sprintf("%s/+/%s", gm.Origin.URL, gm.Origin.Hash)
+}
+
 func (gm *GoModInfo) CompareLinkTo(nm GoModInfo) string {
-	if !gm.isGitHub() {
-		return ""
+	if gm.isGitHub() {
+		return gm.GitHubCompareLinkTo(nm)
 	}
+	if gm.isGoogleSource() {
+		return gm.GoogleSourceCompareLinkTo(nm)
+	}
+	return ""
+}
+
+func (gm *GoModInfo) GoogleSourceCompareLinkTo(nm GoModInfo) string {
+	compareURL := fmt.Sprintf("%s/+/%s^1..%s/", gm.Origin.URL, gm.Origin.Hash, nm.Origin.Hash)
+
+	return compareURL
+}
+
+
+func (gm *GoModInfo) GitHubCompareLinkTo(nm GoModInfo) string {
 	var oldModRef string
 	var newModRef string
 
@@ -75,7 +114,6 @@ func (gm *GoModInfo) CompareLinkTo(nm GoModInfo) string {
 	}
 	url := fmt.Sprintf("%s/compare/%s...%s", gm.Origin.URL, oldModRef, newModRef)
 	return url
-
 }
 
 // NewConfig creates a new configuration
@@ -138,16 +176,16 @@ func toURL(name string) string {
 	return "https://" + name
 }
 
-func isGitHubMod(mod GoModInfo) bool {
-	return strings.Contains(mod.Origin.URL, "https://github.com/")
-}
-
-func sanitizeTag(tag string) string {
-	return strings.TrimSuffix(tag, "+incompatible")
-}
-
 func getGoProxyModInfo(module, version string) (GoModInfo, error) {
-	goModInfoURL := fmt.Sprintf("https://proxy.golang.org/%s/@v/%s.info", module, version)
+	var goProxyServer string
+	goProxyVar, exists := os.LookupEnv("GOPROXY")
+
+	if exists == true {
+		goProxyServer = goProxyVar
+	} else {
+		goProxyServer = "https://proxy.golang.org"
+	}
+	goModInfoURL := fmt.Sprintf("%s/%s/@v/%s.info", goProxyServer, module, version)
 	modInfo := GoModInfo{}
 	resp, err := http.Get(goModInfoURL)
 	if err != nil {
@@ -199,7 +237,7 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 		}
 
 		if mod.beforeVersion == "" { //nolint: gocritic
-			if addLinks && newModInfo.isGitHub() {
+			if addLinks && newModInfo.isGitHostWeKnow() {
 				// Insert the tree part of the URL at index 3 to account for tag names with slashes
 				txt += fmt.Sprintf("[%s](%s)",
 					mod.afterVersion, newModInfo.commitLink())
@@ -208,7 +246,7 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 			}
 			added = append(added, txt)
 		} else if mod.afterVersion == "" {
-			if addLinks && oldModInfo.isGitHub() {
+			if addLinks && oldModInfo.isGitHostWeKnow() {
 				txt += fmt.Sprintf("[%s](%s)",
 					mod.beforeVersion, newModInfo.commitLink())
 			} else {
@@ -216,7 +254,7 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 			}
 			removed = append(removed, txt)
 		} else if mod.beforeVersion != mod.afterVersion {
-			if addLinks && oldModInfo.isGitHub() {
+			if addLinks && oldModInfo.isGitHostWeKnow() {
 				comparisonURL := oldModInfo.CompareLinkTo(newModInfo)
 				if comparisonURL == "" {
 					logrus.Warnf("Unable to get comparison information for %s")

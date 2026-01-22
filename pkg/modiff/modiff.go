@@ -215,7 +215,7 @@ func getGoProxyModInfo(module, version string) (GoModInfo, error) {
 	return modInfo, nil
 }
 
-func logErr(msg interface{}) (string, error) {
+func logErr(msg any) (string, error) {
 	err := fmt.Errorf("%v", msg)
 	logrus.Error(err)
 

@@ -12,6 +12,7 @@ import (
 
 const (
 	repositoryArg  = "repository"
+	referenceCloneArg = "reference-clone"
 	fromArg        = "from"
 	toArg          = "to"
 	linkArg        = "link"
@@ -36,6 +37,11 @@ func main() {
 			Name:      repositoryArg,
 			Aliases:   []string{"r"},
 			Usage:     "repository to be used, like: github.com/owner/repo",
+			TakesFile: false,
+		},
+		&cli.StringFlag{
+			Name:      referenceCloneArg,
+			Usage:     "path to an existing clone to use as the reference",
 			TakesFile: false,
 		},
 		&cli.StringFlag{
@@ -104,6 +110,7 @@ func main() {
 		// Run modiff
 		config := modiff.NewConfig(
 			c.String(repositoryArg),
+			c.String(referenceCloneArg),
 			c.String(fromArg),
 			c.String(toArg),
 			c.Bool(linkArg),

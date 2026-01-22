@@ -30,6 +30,7 @@ type modules = map[string]entry
 // Config is the structure passed to `Run`
 type Config struct {
 	repository  string
+	referenceClone string
 	from        string
 	to          string
 	link        bool
@@ -117,8 +118,8 @@ func (gm *GoModInfo) GitHubCompareLinkTo(nm GoModInfo) string {
 }
 
 // NewConfig creates a new configuration
-func NewConfig(repository, from, to string, link bool, headerLevel uint) *Config {
-	return &Config{repository, from, to, link, headerLevel}
+func NewConfig(repository, referenceClone, from, to string, link bool, headerLevel uint) *Config {
+	return &Config{repository, referenceClone, from, to, link, headerLevel}
 }
 
 // Run starts go modiff and returns the markdown string
@@ -144,13 +145,19 @@ func Run(config *Config) (string, error) {
 	}
 	defer os.RemoveAll(dir)
 
-	referenceRepo := filepath.Join(dir, "reference")
+	var referenceRepo string
 	fromRepo := filepath.Join(dir, "from")
 	toRepo := filepath.Join(dir, "to")
 
-	logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
-	if err := runGit(dir, "clone", "--filter=blob:none", "--bare", toURL(config.repository), referenceRepo); err != nil {
-		return logErr(err)
+	if config.referenceClone != "" {
+		referenceRepo = config.referenceClone
+		logrus.Infof("Using %s as our reference repository", referenceRepo)
+	} else {
+		referenceRepo = filepath.Join(dir, "reference")
+		logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
+		if err := runGit(dir, "clone", "--filter=blob:none", "--bare", toURL(config.repository), referenceRepo); err != nil {
+			return logErr(err)
+		}
 	}
 
 	logrus.Infof("Setting up 'from' repository for '%s' at %s", config.from, fromRepo)

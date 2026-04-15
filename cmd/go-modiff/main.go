@@ -4,19 +4,19 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/saschagrunert/ccli"
+	"github.com/saschagrunert/ccli/v3"
 	"github.com/saschagrunert/go-modiff/pkg/modiff"
 	"github.com/sirupsen/logrus"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 const (
-	repositoryArg  = "repository"
+	repositoryArg     = "repository"
 	referenceCloneArg = "reference-clone"
-	fromArg        = "from"
-	toArg          = "to"
-	linkArg        = "link"
-	headerLevelArg = "header-level"
+	fromArg           = "from"
+	toArg             = "to"
+	linkArg           = "link"
+	headerLevelArg    = "header-level"
 )
 
 func main() {

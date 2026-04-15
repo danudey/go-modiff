@@ -233,13 +233,13 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 		if mod.beforeVersion != "" {
 			oldModInfo, err = getGoProxyModInfo(mod.linkPrefix, mod.beforeVersion)
 			if err != nil {
-				logrus.Errorf("could not fetch module info for %s@%s: %w", mod.linkPrefix, mod.beforeVersion, err)
+				logrus.Errorf("could not fetch module info for %s@%s: %s", mod.linkPrefix, mod.beforeVersion, err)
 			}
 		}
 		if mod.afterVersion != "" {
 			newModInfo, err = getGoProxyModInfo(mod.linkPrefix, mod.afterVersion)
 			if err != nil {
-				logrus.Errorf("could not fetch module info for %s@%s: %w", mod.linkPrefix, mod.afterVersion, err)
+				logrus.Errorf("could not fetch module info for %s@%s: %s", mod.linkPrefix, mod.afterVersion, err)
 			}
 		}
 
@@ -279,7 +279,7 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 			if addLinks && oldModInfo.isGitHostWeKnow() {
 				comparisonURL := oldModInfo.CompareLinkTo(newModInfo)
 				if comparisonURL == "" {
-					logrus.Warnf("Unable to get comparison information for %s")
+					logrus.Warnf("Unable to get comparison information for %s", mod.linkPrefix)
 					txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
 				} else {
 				txt += fmt.Sprintf("[%s → %s](%s)",

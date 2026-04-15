@@ -59,7 +59,7 @@ _Nothing has changed._
 
 	It("should succeed", func() {
 		// Given
-		config := modiff.NewConfig(repo, from, to, false, 1)
+		config := modiff.NewConfig(repo, "", from, to, false, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -71,7 +71,7 @@ _Nothing has changed._
 
 	It("should succeed with links", func() {
 		// Given
-		config := modiff.NewConfig(repo, from, to, true, 1)
+		config := modiff.NewConfig(repo, "", from, to, true, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -93,7 +93,7 @@ _Nothing has changed._
 
 	It("should fail if 'repository' not given", func() {
 		// Given
-		config := modiff.NewConfig("", from, to, true, 1)
+		config := modiff.NewConfig("", "", from, to, true, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -105,7 +105,7 @@ _Nothing has changed._
 
 	It("should fail if 'from' equals 'to'", func() {
 		// Given
-		config := modiff.NewConfig(repo, "", "", true, 1)
+		config := modiff.NewConfig(repo, "", "", "", true, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -117,7 +117,7 @@ _Nothing has changed._
 
 	It("should fail if repository is not clone-able", func() {
 		// Given
-		config := modiff.NewConfig("invalid", from, "", true, 1)
+		config := modiff.NewConfig("invalid", "", from, "", true, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -127,9 +127,22 @@ _Nothing has changed._
 		Expect(res).To(BeEmpty())
 	})
 
+	It("should fail if the specified reference repository does not exist", func() {
+	// Given
+	config := modiff.NewConfig("", "invalid", from, "", true, 1)
+
+	// When
+	res, err := modiff.Run(config)
+
+	// Then
+	Expect(err).To(HaveOccurred())
+	Expect(res).To(BeEmpty())
+})
+
+
 	It("should fail if the repository url is invalid", func() {
 		// Given
-		config := modiff.NewConfig(badRepo, from, to, true, 1)
+		config := modiff.NewConfig(badRepo, "", from, to, true, 1)
 
 		// When
 		res, err := modiff.Run(config)

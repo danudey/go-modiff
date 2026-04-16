@@ -1,3 +1,4 @@
+// Package modiff is the core functionality and logic for git mod diffing
 package modiff
 
 import (
@@ -10,12 +11,15 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const gitlabExampleURL = "https://gitlab.com/foo/bar"
+
 func githubInfo(hash, ref string) GoModInfo {
 	gm := GoModInfo{}
 	gm.Origin.Vcs = "git"
 	gm.Origin.URL = "https://github.com/example/repo"
 	gm.Origin.Hash = hash
 	gm.Origin.Ref = ref
+
 	return gm
 }
 
@@ -25,6 +29,7 @@ func googleSourceInfo(hash, ref string) GoModInfo {
 	gm.Origin.URL = "https://go.googlesource.com/tools"
 	gm.Origin.Hash = hash
 	gm.Origin.Ref = ref
+
 	return gm
 }
 
@@ -66,7 +71,7 @@ func TestIsGitHostWeKnow(t *testing.T) {
 	g.Expect(gs.isGitHostWeKnow()).To(BeTrue())
 
 	other := GoModInfo{}
-	other.Origin.URL = "https://gitlab.com/foo/bar"
+	other.Origin.URL = gitlabExampleURL
 	g.Expect(other.isGitHostWeKnow()).To(BeFalse())
 
 	empty := GoModInfo{}
@@ -100,7 +105,7 @@ func TestCommitLink(t *testing.T) {
 	g.Expect(gs.commitLink()).To(Equal("https://go.googlesource.com/tools/+/def456"))
 
 	other := GoModInfo{}
-	other.Origin.URL = "https://gitlab.com/foo/bar"
+	other.Origin.URL = gitlabExampleURL
 	other.Origin.Hash = "xyz"
 	g.Expect(other.commitLink()).To(Equal(""))
 }
@@ -156,7 +161,7 @@ func TestGitHubCompareLinkTo(t *testing.T) {
 			g := NewGomegaWithT(t)
 			oldInfo := githubInfo(tt.oldHash, tt.oldRef)
 			newInfo := githubInfo(tt.newHash, tt.newRef)
-			g.Expect(oldInfo.GitHubCompareLinkTo(newInfo)).To(Equal(tt.expected))
+			g.Expect(oldInfo.GitHubCompareLinkTo(&newInfo)).To(Equal(tt.expected))
 		})
 	}
 }
@@ -167,7 +172,7 @@ func TestGoogleSourceCompareLinkTo(t *testing.T) {
 
 	oldInfo := googleSourceInfo("aaa", "refs/tags/v0.1.0")
 	newInfo := googleSourceInfo("bbb", "refs/tags/v0.2.0")
-	g.Expect(oldInfo.GoogleSourceCompareLinkTo(newInfo)).
+	g.Expect(oldInfo.GoogleSourceCompareLinkTo(&newInfo)).
 		To(Equal("https://go.googlesource.com/tools/+/aaa^1..bbb/"))
 }
 
@@ -177,15 +182,15 @@ func TestCompareLinkTo(t *testing.T) {
 
 	gh := githubInfo("aaa", "refs/tags/v1.0.0")
 	ghNew := githubInfo("bbb", "refs/tags/v1.1.0")
-	g.Expect(gh.CompareLinkTo(ghNew)).To(Equal("https://github.com/example/repo/compare/v1.0.0...v1.1.0"))
+	g.Expect(gh.CompareLinkTo(&ghNew)).To(Equal("https://github.com/example/repo/compare/v1.0.0...v1.1.0"))
 
 	gs := googleSourceInfo("aaa", "refs/tags/v0.1.0")
 	gsNew := googleSourceInfo("bbb", "refs/tags/v0.2.0")
-	g.Expect(gs.CompareLinkTo(gsNew)).To(Equal("https://go.googlesource.com/tools/+/aaa^1..bbb/"))
+	g.Expect(gs.CompareLinkTo(&gsNew)).To(Equal("https://go.googlesource.com/tools/+/aaa^1..bbb/"))
 
 	other := GoModInfo{}
-	other.Origin.URL = "https://gitlab.com/foo/bar"
-	g.Expect(other.CompareLinkTo(GoModInfo{})).To(Equal(""))
+	other.Origin.URL = gitlabExampleURL
+	g.Expect(other.CompareLinkTo(&GoModInfo{})).To(Equal(""))
 }
 
 func TestGetGoProxyModInfo(t *testing.T) {
@@ -197,7 +202,7 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			g.Expect(r.URL.Path).To(Equal(fmt.Sprintf("/%s/@v/%s.info", module, version)))
 			w.Header().Set("Content-Type", "application/json")
-			fmt.Fprint(w, `{"Version":"v1.2.3","Time":"2024-01-01T00:00:00Z","Origin":{"VCS":"git","URL":"https://github.com/example/repo","Hash":"abc123","Ref":"refs/tags/v1.2.3"}}`)
+			_, _ = fmt.Fprint(w, `{"Version":"v1.2.3","Time":"2024-01-01T00:00:00Z","Origin":{"VCS":"git","URL":"https://github.com/example/repo","Hash":"abc123","Ref":"refs/tags/v1.2.3"}}`)
 		}))
 		defer server.Close()
 
@@ -212,7 +217,7 @@ func TestGetGoProxyModInfo(t *testing.T) {
 
 	t.Run("returns error on 404", func(t *testing.T) {
 		g := NewGomegaWithT(t)
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}))
 		defer server.Close()
@@ -225,8 +230,8 @@ func TestGetGoProxyModInfo(t *testing.T) {
 
 	t.Run("returns error on malformed JSON", func(t *testing.T) {
 		g := NewGomegaWithT(t)
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			fmt.Fprint(w, "not json")
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = fmt.Fprint(w, "not json")
 		}))
 		defer server.Close()
 
@@ -234,7 +239,6 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		_, err := getGoProxyModInfo(module, version)
 		g.Expect(err).To(HaveOccurred())
 	})
-
 }
 
 func TestNewConfig(t *testing.T) {

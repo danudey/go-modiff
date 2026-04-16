@@ -2,6 +2,8 @@ package modiff_test
 
 //nolint:revive // test file
 import (
+	"context"
+	_ "embed"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,8 +14,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/saschagrunert/go-modiff/pkg/modiff"
 	"github.com/sirupsen/logrus"
-
-	_ "embed"
 )
 
 //go:embed expected.txt
@@ -37,9 +37,7 @@ var _ = t.Describe("Run", func() {
 	// To speed up testing (and ensure that reference repositories work), use our own repo as a reference
 	var topLevel string
 	cwd, err := os.Getwd()
-	if err != nil {
-		cwd = ""
-	} else {
+	if err == nil {
 		topLevel, err = modiff.GetGitTopLevel(cwd)
 		if err != nil {
 			topLevel = ""
@@ -57,7 +55,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig(repo, topLevel, from, to, false, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).ToNot(HaveOccurred())
@@ -69,7 +67,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig(repo, topLevel, from, to, false, true, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).ToNot(HaveOccurred())
@@ -81,7 +79,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig(repo, topLevel, from, to, true, true, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).ToNot(HaveOccurred())
@@ -91,7 +89,7 @@ var _ = t.Describe("Run", func() {
 	It("should fail if context is nil", func() {
 		// Given
 		// When
-		res, err := modiff.Run(nil)
+		res, err := modiff.Run(context.Background(), nil)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -103,7 +101,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig("", "", from, to, true, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -115,7 +113,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig(repo, topLevel, "", "", true, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -127,7 +125,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -139,7 +137,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig("", "invalid", from, "", true, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -151,7 +149,7 @@ var _ = t.Describe("Run", func() {
 		config := modiff.NewConfig(badRepo, "", from, to, true, false, 1)
 
 		// When
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(context.Background(), config)
 
 		// Then
 		Expect(err).To(HaveOccurred())
@@ -193,7 +191,7 @@ func TestCheckURLValid(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			g := NewGomegaWithT(t)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNotFound)
 			}))
 			defer server.Close()

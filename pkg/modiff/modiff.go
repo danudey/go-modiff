@@ -1,3 +1,4 @@
+// Package modiff is the core functionality and logic for git mod diffing
 package modiff
 
 import (
@@ -41,14 +42,14 @@ type Config struct {
 
 // GoModInfo is the information struct returned from proxy.golang.org
 type GoModInfo struct {
-	Version string    `json:"Version"`
-	Time    time.Time `json:"Time"`
+	Version string    `json:"version"`
+	Time    time.Time `json:"time"`
 	Origin  struct {
-		Vcs  string `json:"VCS"`
-		URL  string `json:"URL"`
-		Hash string `json:"Hash"`
-		Ref  string `json:"Ref"`
-	} `json:"Origin"`
+		Vcs  string `json:"vcs"`
+		URL  string `json:"url"`
+		Hash string `json:"hash"`
+		Ref  string `json:"ref"`
+	} `json:"origin"`
 }
 
 // GetGitTopLevel takes a path to a git repository or subdirectory of one and returns the top-level directory
@@ -62,16 +63,16 @@ func AddGitWorktree(repoDir, destDir, gitRef string) error {
 	if err := runGit(repoDir, "worktree", "add", destDir, gitRef); err != nil {
 		return fmt.Errorf("could not set up git worktree at %s: %w", destDir, err)
 	}
+
 	return nil
 }
 
 // RemoveGitWorktree removes a created Git worktree at the provided location
-func RemoveGitWorktree(repoDir, destDir string) error {
+func RemoveGitWorktree(repoDir, destDir string) {
 	logrus.Debugf("Removing worktree at %s", destDir)
 	if err := runGit(repoDir, "worktree", "remove", destDir); err != nil {
-		return fmt.Errorf("could not remove git worktree at %s: %w", destDir, err)
+		logrus.WithError(err).Errorf("could not remove git worktree at %s", destDir)
 	}
-	return nil
 }
 
 func (gm *GoModInfo) isGitHub() bool {
@@ -86,6 +87,7 @@ func (gm *GoModInfo) isGitHostWeKnow() bool {
 	if gm.isGitHub() || gm.isGoogleSource() {
 		return true
 	}
+
 	return false
 }
 
@@ -96,34 +98,41 @@ func (gm *GoModInfo) commitLink() string {
 	if gm.isGoogleSource() {
 		return gm.GoogleSourceCommitLink()
 	}
+
 	return ""
 }
 
+// GitHubCommitLink creates a link to the given commit on Github's website
 func (gm *GoModInfo) GitHubCommitLink() string {
 	return fmt.Sprintf("%s/commit/%s", gm.Origin.URL, gm.Origin.Hash)
 }
 
+// GoogleSourceCommitLink creates a link to the given commit on the Google Source website
 func (gm *GoModInfo) GoogleSourceCommitLink() string {
 	return fmt.Sprintf("%s/+/%s", gm.Origin.URL, gm.Origin.Hash)
 }
 
-func (gm *GoModInfo) CompareLinkTo(nm GoModInfo) string {
+// CompareLinkTo creates a comparison link between two refs depending on which git host is being used
+func (gm *GoModInfo) CompareLinkTo(nm *GoModInfo) string {
 	if gm.isGitHub() {
 		return gm.GitHubCompareLinkTo(nm)
 	}
 	if gm.isGoogleSource() {
 		return gm.GoogleSourceCompareLinkTo(nm)
 	}
+
 	return ""
 }
 
-func (gm *GoModInfo) GoogleSourceCompareLinkTo(nm GoModInfo) string {
+// GoogleSourceCompareLinkTo produces a comparison link between two refs for a Google Source repo
+func (gm *GoModInfo) GoogleSourceCompareLinkTo(nm *GoModInfo) string {
 	compareURL := fmt.Sprintf("%s/+/%s^1..%s/", gm.Origin.URL, gm.Origin.Hash, nm.Origin.Hash)
 
 	return compareURL
 }
 
-func (gm *GoModInfo) GitHubCompareLinkTo(nm GoModInfo) string {
+// GitHubCompareLinkTo produces a comparison link between two refs for a Github repo
+func (gm *GoModInfo) GitHubCompareLinkTo(nm *GoModInfo) string {
 	var oldModRef string
 	var newModRef string
 
@@ -138,6 +147,7 @@ func (gm *GoModInfo) GitHubCompareLinkTo(nm GoModInfo) string {
 		newModRef = nm.Origin.Hash
 	}
 	url := fmt.Sprintf("%s/compare/%s...%s", gm.Origin.URL, oldModRef, newModRef)
+
 	return url
 }
 
@@ -147,36 +157,37 @@ func NewConfig(repository, referenceClone, from, to string, link, includeIndirec
 	if referenceClone != "" {
 		absClone, err := filepath.Abs(referenceClone)
 		if err != nil {
-			logErr(fmt.Sprintf("couldn't get absolute path to reference repository `%s`", referenceClone))
+			logrus.WithError(err).Errorf("couldn't get absolute path to reference repository `%s`", referenceClone)
 		} else {
 			referenceClone = absClone
 		}
 	}
+
 	return &Config{repository, referenceClone, from, to, link, includeIndirect, headerLevel}
 }
 
 // Run starts go modiff and returns the markdown string
-func Run(config *Config) (string, error) {
+func Run(_ context.Context, config *Config) (string, error) {
 	// Enable to modules
-	os.Setenv("GO111MODULE", "on")
-
-	if config == nil {
-		return logErr("cli context is nil")
+	err := os.Setenv("GO111MODULE", "on")
+	if err != nil {
+		return "", fmt.Errorf("unable to set GO111MODULE env var to on: %w", err)
 	}
+
 	// Validate the flags
 	if config.repository == "" {
-		return logErr("repository is required")
+		return "", fmt.Errorf("no repository name was provided")
 	}
 	if config.from == config.to {
-		return logErr("no diff possible if `from` equals `to`")
+		return "", fmt.Errorf("`to` and `from` git refs cannot be equal")
 	}
 
 	// Prepare the environment
 	dir, err := os.MkdirTemp("", "go-modiff")
 	if err != nil {
-		return logErr(err)
+		return "", fmt.Errorf("unable to create temporary directory: %w", err)
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	var referenceRepo string
 	fromWorktreePath := filepath.Join(dir, "from")
@@ -189,20 +200,20 @@ func Run(config *Config) (string, error) {
 		referenceRepo = filepath.Join(dir, "reference")
 		logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
 		if err := runGit(dir, "clone", "--filter=blob:none", "--bare", toURL(config.repository), referenceRepo); err != nil {
-			return logErr(err)
+			return "", fmt.Errorf("unable to run git command: %w", err)
 		}
 	}
 
 	logrus.Infof("Setting up 'from' worktree for '%s' at %s", config.from, fromWorktreePath)
 	if err := AddGitWorktree(referenceRepo, fromWorktreePath, config.from); err != nil {
-		return logErr(err)
+		return "", fmt.Errorf("unable to create git worktree: %w", err)
 	}
 
 	defer RemoveGitWorktree(referenceRepo, fromWorktreePath)
 
 	logrus.Infof("Setting up 'to' worktree for '%s' at %s", config.to, toWorktreePath)
 	if err := AddGitWorktree(referenceRepo, toWorktreePath, config.to); err != nil {
-		return logErr(err)
+		return "", fmt.Errorf("unable to create git worktree: %w", err)
 	}
 
 	defer RemoveGitWorktree(referenceRepo, toWorktreePath)
@@ -224,7 +235,7 @@ func getGoProxyModInfo(module, version string) (GoModInfo, error) {
 	var goProxyServer string
 	goProxyVar, exists := os.LookupEnv("GOPROXY")
 
-	if exists == true {
+	if exists {
 		goProxyServer = goProxyVar
 	} else {
 		goProxyServer = "https://proxy.golang.org"
@@ -236,7 +247,7 @@ func getGoProxyModInfo(module, version string) (GoModInfo, error) {
 	if err != nil {
 		return modInfo, fmt.Errorf("could not get go module info from golang module proxy: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
 		return modInfo, fmt.Errorf("golang proxy says module version %s@%s does not exist", module, version)
@@ -250,14 +261,8 @@ func getGoProxyModInfo(module, version string) (GoModInfo, error) {
 	if err := json.Unmarshal(body, &modInfo); err != nil {
 		return modInfo, fmt.Errorf("could not decode response body from golang module proxy: %w", err)
 	}
+
 	return modInfo, nil
-}
-
-func logErr(msg any) (string, error) {
-	err := fmt.Errorf("%v", msg)
-	logrus.Error(err)
-
-	return "", err
 }
 
 func diffModules(mods modules, addLinks bool, headerLevel uint) string {
@@ -271,13 +276,13 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 		if mod.beforeVersion != "" {
 			oldModInfo, err = getGoProxyModInfo(mod.name, mod.beforeVersion)
 			if err != nil {
-				logrus.Errorf("could not fetch module info for %s@%s: %s", mod.linkPrefix, mod.beforeVersion, err)
+				logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, mod.beforeVersion)
 			}
 		}
 		if mod.afterVersion != "" {
 			newModInfo, err = getGoProxyModInfo(mod.name, mod.afterVersion)
 			if err != nil {
-				logrus.Errorf("could not fetch module info for %s@%s: %s", mod.linkPrefix, mod.afterVersion, err)
+				logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, mod.afterVersion)
 			}
 		}
 
@@ -313,14 +318,13 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 			removed = append(removed, txt)
 		} else if mod.beforeVersion != mod.afterVersion {
 			if addLinks && oldModInfo.isGitHostWeKnow() {
-				comparisonURL := oldModInfo.CompareLinkTo(newModInfo)
+				comparisonURL := oldModInfo.CompareLinkTo(&newModInfo)
 				if comparisonURL == "" {
 					logrus.Warnf("Unable to get comparison information for %s", mod.linkPrefix)
 					txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
 				} else {
 					txt += fmt.Sprintf("[%s → %s](%s)",
 						mod.beforeVersion, mod.afterVersion, comparisonURL)
-
 				}
 			} else {
 				txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
@@ -397,6 +401,7 @@ func getModules(workDir, from, to string, indirect bool) (modules, error) {
 			val := scanner.Text()
 			if seenBefore[val] && seenAfter[val] {
 				logrus.Debugf("Skipping duplicate line: %s", val)
+
 				continue
 			}
 
@@ -427,8 +432,8 @@ func getModules(workDir, from, to string, indirect bool) (modules, error) {
 				// Check if the last part of string is part of the tag.
 				linkPrefixTree := strings.Join(slices.Insert(splitLink, 3, "tree"), "/")
 				url := fmt.Sprintf("https://%s%s%s", linkPrefixTree, "/", strings.TrimSpace(split[1]))
-				logrus.Debugf("  Module %s has an extra segment '%s'; we need to see if it's part of the repository URL", name, splitLink[3])
-				logrus.Debugf("    Checking this by fetching %s", url)
+				logrus.Debugf("  Module %s has an extra segment '%s'", name, splitLink[3])
+				logrus.Debugf("    Checking if it's part of the repo URL by fetching %s", url)
 				// If the url is valid, then we keep the linkPrefix as is
 				client := http.Client{}
 				if valid, err := CheckURLValid(client, url); !valid && err == nil {
@@ -472,6 +477,7 @@ func getModules(workDir, from, to string, indirect bool) (modules, error) {
 	return res, nil
 }
 
+// CheckURLValid validates that a URL exists by making an HTTP HEAD request to it
 func CheckURLValid(client http.Client, url string) (bool, error) {
 	ctx := context.Background()
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, http.NoBody)
@@ -482,11 +488,11 @@ func CheckURLValid(client http.Client, url string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("error while sending request: %w", err)
 	} else if resp.StatusCode == http.StatusNotFound {
-		resp.Body.Close()
+		_ = resp.Body.Close()
 
 		return false, nil
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	return true, nil
 }
@@ -510,6 +516,7 @@ func retrieveModules(workDir string, indirect bool) (string, error) {
 
 func runGit(dir string, args ...string) error {
 	logrus.Debugf("Running command in %s: git %s", dir, strings.Join(args, " "))
+
 	return runCmd(dir, "git", args...)
 }
 
@@ -526,10 +533,12 @@ func runGitOutput(dir string, args ...string) (string, error) {
 		return "", fmt.Errorf("unable to execute git command: %w", err)
 	}
 	outputStr := strings.TrimSpace(string(output))
+
 	return outputStr, nil
 }
+
 func runCmdOutput(dir, cmd string, args ...string) ([]byte, error) {
-	c := exec.Command(cmd, args...)
+	c := exec.CommandContext(context.Background(), cmd, args...)
 	c.Stderr = nil
 	c.Dir = dir
 

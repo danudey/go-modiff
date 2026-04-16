@@ -83,7 +83,7 @@ func main() {
 			Usage:   "enable debug output",
 		},
 	}
-	app.Action = func(_ context.Context, c *cli.Command) error {
+	app.Action = func(ctx context.Context, c *cli.Command) error {
 		// Init the logging facade
 		logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
 		if c.Bool("debug") {
@@ -104,7 +104,7 @@ func main() {
 			c.Bool(includeIndirect),
 			c.Uint(headerLevelArg),
 		)
-		res, err := modiff.Run(config)
+		res, err := modiff.Run(ctx, config)
 		if err != nil {
 			return fmt.Errorf("unable to run: %w", err)
 		}
@@ -116,5 +116,4 @@ func main() {
 	if err := app.Run(context.Background(), os.Args); err != nil {
 		os.Exit(1)
 	}
-
 }

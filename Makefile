@@ -14,7 +14,7 @@ define go-build
 	@echo > /dev/null
 endef
 
-all: $(GO_MODIFF)
+all: vendor $(GO_MODIFF)
 
 .PHONY: clean
 clean:
@@ -32,21 +32,21 @@ docs: $(GO_MODIFF)
 	$(GO_MODIFF) f > completions/go-modiff.fish
 
 .PHONY: $(GO_MODIFF)
-$(GO_MODIFF):
+$(GO_MODIFF): vendor
 	$(call go-build,./cmd/go-modiff)
 
 .PHONY: $(GO_MODIFF_STATIC)
-$(GO_MODIFF_STATIC):
+$(GO_MODIFF_STATIC): vendor
 	$(call go-build,./cmd/go-modiff,-linkmode external -extldflags "-static -lm")
 
-$(GOLANGCI_LINT):
+$(GOLANGCI_LINT): vendor
 	export \
 		VERSION=v1.55.2 \
 		URL=https://raw.githubusercontent.com/golangci/golangci-lint \
 		BINDIR=$(BUILD_PATH) && \
 	curl -sfL $$URL/$$VERSION/install.sh | sh -s $$VERSION
 
-$(GINKGO):
+$(GINKGO): vendor
 	$(call go-build,./vendor/github.com/onsi/ginkgo/v2/ginkgo)
 
 .PHONY: lint
@@ -55,11 +55,12 @@ lint: $(GOLANGCI_LINT)
 	GL_DEBUG=gocritic $(GOLANGCI_LINT) run
 
 .PHONY: test
-test: $(GINKGO)
+test: vendor $(GINKGO)
 	rm -rf $(COVERAGE_PATH) && mkdir -p $(COVERAGE_PATH)
 	$(BUILD_PATH)/ginkgo run $(TESTFLAGS) \
 		-r -p \
 		--cover \
+		--race \
 		--mod vendor \
 		--randomize-all \
 		--randomize-suites \
@@ -67,7 +68,6 @@ test: $(GINKGO)
 		--output-dir $(COVERAGE_PATH) \
 		--coverprofile coverprofile \
 		--junit-report junit.xml \
-		--slow-spec-threshold 60s \
 		--trace \
 		--succinct
 	$(GO) tool cover -html=$(COVERAGE_PATH)/coverprofile -o $(COVERAGE_PATH)/coverage.html

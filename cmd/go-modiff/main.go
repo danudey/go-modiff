@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -17,16 +18,17 @@ const (
 	toArg             = "to"
 	linkArg           = "link"
 	headerLevelArg    = "header-level"
+	includeIndirect   = "include-indirect"
+	debugFlag         = "debug"
 )
 
 func main() {
-	const debugFlag = "debug"
-
-	app := ccli.NewApp()
+	app := ccli.NewCommand()
 	app.Name = "go-modiff"
-	app.Version = "1.3.1"
-	app.Authors = []*cli.Author{
-		{Name: "Sascha Grunert", Email: "mail@saschagrunert.de"},
+	app.Version = "2.0.0"
+	app.Authors = []any{
+		"Sascha Grunert <mail@saschagrunert.de>",
+		"Daniel Fox <dan.fox@tigera.io",
 	}
 	app.Usage = "Command line tool for diffing go module " +
 		"dependency changes between versions"
@@ -70,34 +72,18 @@ func main() {
 			Usage:   "add a higher markdown header level depth",
 		},
 		&cli.BoolFlag{
+			Name:    includeIndirect,
+			Aliases: []string{"i"},
+			Value:   false,
+			Usage:   "include indirect imports",
+		},
+		&cli.BoolFlag{
 			Name:    debugFlag,
 			Aliases: []string{"d"},
 			Usage:   "enable debug output",
 		},
 	}
-	app.Commands = []*cli.Command{{
-		Name:    "docs",
-		Aliases: []string{"d"},
-		Action:  docs,
-		Usage: "generate the markdown or man page documentation " +
-			"and print it to stdout",
-		Flags: []cli.Flag{
-			&cli.BoolFlag{
-				Name:  "markdown",
-				Usage: "print the markdown version",
-			},
-			&cli.BoolFlag{
-				Name:  "man",
-				Usage: "print the man version",
-			},
-		},
-	}, {
-		Name:    "fish",
-		Aliases: []string{"f"},
-		Action:  fish,
-		Usage:   "generate the fish shell completion",
-	}}
-	app.Action = func(c *cli.Context) error {
+	app.Action = func(_ context.Context, c *cli.Command) error {
 		// Init the logging facade
 		logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
 		if c.Bool("debug") {
@@ -108,12 +94,14 @@ func main() {
 		}
 
 		// Run modiff
+		fmt.Println(c.Bool(includeIndirect))
 		config := modiff.NewConfig(
 			c.String(repositoryArg),
 			c.String(referenceCloneArg),
 			c.String(fromArg),
 			c.String(toArg),
 			c.Bool(linkArg),
+			c.Bool(includeIndirect),
 			c.Uint(headerLevelArg),
 		)
 		res, err := modiff.Run(config)
@@ -125,32 +113,8 @@ func main() {
 
 		return nil
 	}
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		os.Exit(1)
 	}
-}
 
-func docs(c *cli.Context) (err error) {
-	res := ""
-	if c.Bool("markdown") {
-		res, err = c.App.ToMarkdown()
-	} else if c.Bool("man") {
-		res, err = c.App.ToMan()
-	}
-	if err != nil {
-		return fmt.Errorf("unable to run docs cmd: %w", err)
-	}
-	fmt.Printf("%v\n", res)
-
-	return nil
-}
-
-func fish(c *cli.Context) (err error) {
-	res, err := c.App.ToFishCompletion()
-	if err != nil {
-		return fmt.Errorf("unable to run completions cmd: %w", err)
-	}
-	fmt.Printf("%v", res)
-
-	return nil
 }

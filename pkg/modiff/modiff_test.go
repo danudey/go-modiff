@@ -5,47 +5,28 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/saschagrunert/go-modiff/pkg/modiff"
 	"github.com/sirupsen/logrus"
+
+	_ "embed"
 )
+
+//go:embed expected.txt
+var expected string
+
+//go:embed expectedIndirect.txt
+var expectedIndirect string
+
+//go:embed expectedWithLinks.txt
+var expectedWithLinks string
 
 // The actual test suite
 var _ = t.Describe("Run", func() {
-	const expected = `# Dependencies
-
-## Added
-_Nothing has changed._
-
-## Changed
-- github.com/bombsimon/wsl: v1.2.5 → v1.2.1
-- github.com/golangci/golangci-lint: v1.21.0 → v1.20.0
-- github.com/golangci/lint-1: 297bf36 → fad67e0
-- golang.org/x/tools: 0337d82 → 7c411de
-
-## Removed
-- github.com/gofrs/flock: 5135e61
-`
-
-	//nolint:lll // required formatting
-	const expectedWithLinks = `# Dependencies
-
-## Added
-_Nothing has changed._
-
-## Changed
-- github.com/bombsimon/wsl: [v1.2.5 → v1.2.1](https://github.com/bombsimon/wsl/compare/v1.2.5...v1.2.1)
-- github.com/golangci/golangci-lint: [v1.21.0 → v1.20.0](https://github.com/golangci/golangci-lint/compare/v1.21.0...v1.20.0)
-- github.com/golangci/lint-1: [297bf36 → fad67e0](https://github.com/golangci/lint-1/compare/297bf36...fad67e0)
-- golang.org/x/tools: 0337d82 → 7c411de
-
-## Removed
-- github.com/gofrs/flock: [5135e61](https://github.com/gofrs/flock/tree/5135e61)
-`
-
 	const (
 		repo    = "github.com/saschagrunert/go-modiff"
 		from    = "v0.10.0"
@@ -53,13 +34,27 @@ _Nothing has changed._
 		badRepo = "github.com/saschagrunert/go-modiff-invalid"
 	)
 
+	// To speed up testing (and ensure that reference repositories work), use our own repo as a reference
+	var topLevel string
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = ""
+	} else {
+		topLevel, err = modiff.GetGitTopLevel(cwd)
+		if err != nil {
+			topLevel = ""
+		}
+	}
+
+	fmt.Println(topLevel)
+
 	BeforeEach(func() {
 		logrus.SetLevel(logrus.PanicLevel)
 	})
 
 	It("should succeed", func() {
 		// Given
-		config := modiff.NewConfig(repo, "", from, to, false, 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, false, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -69,9 +64,21 @@ _Nothing has changed._
 		Expect(res).To(Equal(expected))
 	})
 
+	It("should succeed with indirect mods", func() {
+		// Given
+		config := modiff.NewConfig(repo, topLevel, from, to, false, true, 1)
+
+		// When
+		res, err := modiff.Run(config)
+
+		// Then
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res).To(Equal(expectedIndirect))
+	})
+
 	It("should succeed with links", func() {
 		// Given
-		config := modiff.NewConfig(repo, "", from, to, true, 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, true, true, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -93,7 +100,7 @@ _Nothing has changed._
 
 	It("should fail if 'repository' not given", func() {
 		// Given
-		config := modiff.NewConfig("", "", from, to, true, 1)
+		config := modiff.NewConfig("", "", from, to, true, false, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -105,7 +112,7 @@ _Nothing has changed._
 
 	It("should fail if 'from' equals 'to'", func() {
 		// Given
-		config := modiff.NewConfig(repo, "", "", "", true, 1)
+		config := modiff.NewConfig(repo, topLevel, "", "", true, false, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -117,7 +124,7 @@ _Nothing has changed._
 
 	It("should fail if repository is not clone-able", func() {
 		// Given
-		config := modiff.NewConfig("invalid", "", from, "", true, 1)
+		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, 1)
 
 		// When
 		res, err := modiff.Run(config)
@@ -128,21 +135,20 @@ _Nothing has changed._
 	})
 
 	It("should fail if the specified reference repository does not exist", func() {
-	// Given
-	config := modiff.NewConfig("", "invalid", from, "", true, 1)
+		// Given
+		config := modiff.NewConfig("", "invalid", from, "", true, false, 1)
 
-	// When
-	res, err := modiff.Run(config)
+		// When
+		res, err := modiff.Run(config)
 
-	// Then
-	Expect(err).To(HaveOccurred())
-	Expect(res).To(BeEmpty())
-})
-
+		// Then
+		Expect(err).To(HaveOccurred())
+		Expect(res).To(BeEmpty())
+	})
 
 	It("should fail if the repository url is invalid", func() {
-		// Given
-		config := modiff.NewConfig(badRepo, "", from, to, true, 1)
+		// Given: no reference clone, so Run() will attempt to clone the bad repo
+		config := modiff.NewConfig(badRepo, "", from, to, true, false, 1)
 
 		// When
 		res, err := modiff.Run(config)

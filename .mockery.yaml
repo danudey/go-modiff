@@ -1,3 +1,8 @@
+# Annoying deprecation stuff
+resolve-type-alias: False
+disable-version-string: True
+issue-845-fix: True
+
 with-expecter: true
 dir: "{{.InterfaceDir}}/mocks"
 outpkg: mocks

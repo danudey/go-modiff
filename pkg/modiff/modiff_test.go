@@ -12,6 +12,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/saschagrunert/go-modiff/pkg/git"
 	"github.com/saschagrunert/go-modiff/pkg/modiff"
 	"github.com/sirupsen/logrus"
 )
@@ -38,7 +39,7 @@ var _ = t.Describe("Run", func() {
 	var topLevel string
 	cwd, err := os.Getwd()
 	if err == nil {
-		topLevel, err = modiff.GetGitTopLevel(cwd)
+		topLevel, err = git.GetTopLevel(cwd)
 		if err != nil {
 			topLevel = ""
 		}

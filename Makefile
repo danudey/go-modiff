@@ -7,6 +7,8 @@ GOLANGCI_LINT := $(BUILD_PATH)/golangci-lint
 GO_MODIFF := $(BUILD_PATH)/go-modiff
 GO_MODIFF_STATIC := $(BUILD_PATH)/go-modiff.static
 GINKGO := $(BUILD_PATH)/ginkgo
+MOCKERY := $(BUILD_PATH)/mockery
+MOCKERY_VERSION := v2.53.6
 
 define go-build
 	cd `pwd` && $(GO) build -ldflags '-s -w $(2)' \
@@ -48,6 +50,13 @@ $(GOLANGCI_LINT): vendor
 
 $(GINKGO): vendor
 	$(call go-build,./vendor/github.com/onsi/ginkgo/v2/ginkgo)
+
+$(MOCKERY):
+	GOBIN=$(abspath $(BUILD_PATH)) $(GO) install github.com/vektra/mockery/v2@$(MOCKERY_VERSION)
+
+.PHONY: mocks
+mocks: $(MOCKERY)
+	$(MOCKERY)
 
 .PHONY: lint
 lint: $(GOLANGCI_LINT)

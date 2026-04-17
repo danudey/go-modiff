@@ -73,8 +73,7 @@ test: vendor $(GINKGO)
 	$(GO) tool cover -html=$(COVERAGE_PATH)/coverprofile -o $(COVERAGE_PATH)/coverage.html
 	$(GO) tool cover -func=$(COVERAGE_PATH)/coverprofile
 
-.PHONY: vendor
-vendor:
+vendor: go.mod go.sum
 	export GO111MODULE=on GOSUMDB= && \
 		$(GO) mod tidy && \
 		$(GO) mod vendor && \

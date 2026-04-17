@@ -168,6 +168,11 @@ func NewConfig(repository, referenceClone, from, to string, link, includeIndirec
 
 // Run starts go modiff and returns the markdown string
 func Run(_ context.Context, config *Config) (string, error) {
+
+	if config == nil {
+		return "", fmt.Errorf("configuration cannot be nil")
+	}
+
 	// Enable to modules
 	err := os.Setenv("GO111MODULE", "on")
 	if err != nil {

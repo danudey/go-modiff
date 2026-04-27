@@ -3,12 +3,20 @@ package git_test
 //nolint:revive // test file
 import (
 	"errors"
+	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/saschagrunert/go-modiff/pkg/git"
 	"github.com/saschagrunert/go-modiff/pkg/git/mocks"
+	"github.com/sirupsen/logrus"
 )
+
+func TestConfig(t *testing.T) {
+	logrus.SetOutput(GinkgoWriter)
+	RegisterFailHandler(Fail)
+	RunSpecs(t, "Git test suite")
+}
 
 var _ = Describe("git", func() {
 	var (

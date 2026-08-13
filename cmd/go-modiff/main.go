@@ -12,14 +12,15 @@ import (
 )
 
 const (
-	repositoryArg     = "repository"
-	referenceCloneArg = "reference-clone"
-	fromArg           = "from"
-	toArg             = "to"
-	linkArg           = "link"
-	headerLevelArg    = "header-level"
-	includeIndirect   = "include-indirect"
-	debugFlag         = "debug"
+	repositoryArg        = "repository"
+	referenceCloneArg    = "reference-clone"
+	fromArg              = "from"
+	toArg                = "to"
+	linkArg              = "link"
+	headerLevelArg       = "header-level"
+	includeIndirect      = "include-indirect"
+	includeEmptySections = "include-empty"
+	debugFlag            = "debug"
 )
 
 func main() {
@@ -78,6 +79,12 @@ func main() {
 			Usage:   "include indirect imports",
 		},
 		&cli.BoolFlag{
+			Name:    includeEmptySections,
+			Aliases: []string{"e"},
+			Value:   false,
+			Usage:   "include empty added/changed/removed sections",
+		},
+		&cli.BoolFlag{
 			Name:    debugFlag,
 			Aliases: []string{"d"},
 			Usage:   "enable debug output",
@@ -102,11 +109,13 @@ func main() {
 			c.String(toArg),
 			c.Bool(linkArg),
 			c.Bool(includeIndirect),
+			c.Bool(includeEmptySections),
 			c.Uint(headerLevelArg),
 		)
 		res, err := modiff.Run(ctx, config)
 		if err != nil {
-			return fmt.Errorf("unable to run: %w", err)
+			logrus.WithError(err).Error("Failed to execute")
+			// fmt.Errorf("unable to run: %w", err)
 		}
 		logrus.Info("Done, the result will be printed to `stdout`")
 		fmt.Print(res)

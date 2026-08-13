@@ -37,11 +37,12 @@ type Config struct {
 	to             string
 	link           bool
 	indirect       bool
+	empty          bool
 	headerLevel    uint
 }
 
 // NewConfig creates a new configuration
-func NewConfig(repository, referenceClone, from, to string, link, includeIndirect bool, headerLevel uint) *Config {
+func NewConfig(repository, referenceClone, from, to string, link, includeIndirect, includeEmpty bool, headerLevel uint) *Config {
 	// Make sure we have an absolute path to our reference repository if we got one
 	if referenceClone != "" {
 		absClone, err := filepath.Abs(referenceClone)
@@ -52,7 +53,7 @@ func NewConfig(repository, referenceClone, from, to string, link, includeIndirec
 		}
 	}
 
-	return &Config{repository, referenceClone, from, to, link, includeIndirect, headerLevel}
+	return &Config{repository, referenceClone, from, to, link, includeIndirect, includeEmpty, headerLevel}
 }
 
 // Run starts go modiff and returns the markdown string
@@ -118,7 +119,7 @@ func Run(_ context.Context, config *Config) (string, error) {
 		return "", err
 	}
 
-	return diffModules(mods, config.link, config.headerLevel), nil
+	return diffModules(mods, config.link, config.empty, config.headerLevel), nil
 }
 
 func toURL(name string) string {
@@ -159,7 +160,7 @@ func getGoProxyModInfo(module, version string) (gomod.Info, error) {
 	return modInfo, nil
 }
 
-func diffModules(mods modules, addLinks bool, headerLevel uint) string {
+func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 	var added, removed, changed []string
 	for name, mod := range mods {
 		var oldModInfo gomod.Info
@@ -239,15 +240,19 @@ func diffModules(mods modules, addLinks bool, headerLevel uint) string {
 		builder, "%s Dependencies\n", strings.Repeat("#", int(headerLevel)),
 	)
 	forEach := func(section string, input []string) {
-		fmt.Fprintf(
-			builder,
-			"\n%s %s\n", strings.Repeat("#", int(headerLevel)+1), section,
-		)
 		if len(input) > 0 {
+			fmt.Fprintf(
+				builder,
+				"\n%s %s\n", strings.Repeat("#", int(headerLevel)+1), section,
+			)
 			for _, mod := range input {
 				fmt.Fprintf(builder, "%s\n", mod)
 			}
-		} else {
+		} else if empty {
+			fmt.Fprintf(
+				builder,
+				"\n%s %s\n", strings.Repeat("#", int(headerLevel)+1), section,
+			)
 			builder.WriteString("_Nothing has changed._\n")
 		}
 	}

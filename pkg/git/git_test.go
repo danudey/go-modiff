@@ -3,20 +3,12 @@ package git_test
 //nolint:revive // test file
 import (
 	"errors"
-	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/saschagrunert/go-modiff/pkg/git"
 	"github.com/saschagrunert/go-modiff/pkg/git/mocks"
-	"github.com/sirupsen/logrus"
 )
-
-func TestConfig(t *testing.T) {
-	logrus.SetOutput(GinkgoWriter)
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Git test suite")
-}
 
 var _ = Describe("git", func() {
 	var (
@@ -92,10 +84,53 @@ var _ = Describe("git", func() {
 		})
 	})
 
-	Describe("AddWorktree", func() {
-		It("invokes `git worktree add <dest> <ref>`", func() {
+	Describe("RemoteURL", func() {
+		It("shells out to `git remote get-url`", func() {
 			runner.EXPECT().
-				RunCmd("/repo", "git", "worktree", "add", "/dest", "v1.0.0").
+				RunCmdOutput("/repo", "git", "remote", "get-url", "origin").
+				Return([]byte("git@github.com:owner/repo.git\n"), nil).Once()
+
+			url, err := git.RemoteURL("/repo", git.DefaultRemote)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(url).To(Equal("git@github.com:owner/repo.git"))
+		})
+
+		It("returns an error when the remote is unknown", func() {
+			runner.EXPECT().
+				RunCmdOutput("/repo", "git", "remote", "get-url", "upstream").
+				Return(nil, errors.New("no such remote")).Once()
+
+			_, err := git.RemoteURL("/repo", "upstream")
+			Expect(err).To(HaveOccurred())
+		})
+	})
+
+	Describe("NormalizeRemoteURL", func() {
+		DescribeTable("returns the host and path of remote URLs",
+			func(input, expected string) {
+				Expect(git.NormalizeRemoteURL(input)).To(Equal(expected))
+			},
+			Entry("https", "https://github.com/owner/repo.git", "github.com/owner/repo"),
+			Entry("https without suffix", "https://github.com/owner/repo", "github.com/owner/repo"),
+			Entry("https with trailing slash", "https://github.com/owner/repo/", "github.com/owner/repo"),
+			Entry("https with credentials", "https://user:token@github.com/owner/repo.git", "github.com/owner/repo"),
+			Entry("scp syntax", "git@github.com:owner/repo.git", "github.com/owner/repo"),
+			Entry("ssh scheme", "ssh://git@github.com/owner/repo.git", "github.com/owner/repo"),
+			Entry("ssh scheme with port", "ssh://git@github.com:22/owner/repo.git", "github.com/owner/repo"),
+			Entry("nested path", "https://gitlab.com/group/sub/repo.git", "gitlab.com/group/sub/repo"),
+			Entry("surrounding whitespace", "  https://github.com/owner/repo.git\n", "github.com/owner/repo"),
+			Entry("absolute local path", "/srv/git/repo.git", ""),
+			Entry("relative local path", "../repo", ""),
+			Entry("hostname without a dot", "git@localhost:owner/repo.git", ""),
+			Entry("host without a path", "https://github.com", ""),
+			Entry("empty", "", ""),
+		)
+	})
+
+	Describe("AddWorktree", func() {
+		It("invokes `git worktree add --detach <dest> <ref>`", func() {
+			runner.EXPECT().
+				RunCmd("/repo", "git", "worktree", "add", "--detach", "/dest", "v1.0.0").
 				Return(nil).Once()
 
 			Expect(git.AddWorktree("/repo", "/dest", "v1.0.0")).To(Succeed())
@@ -103,7 +138,7 @@ var _ = Describe("git", func() {
 
 		It("wraps the runner error with the destination path", func() {
 			runner.EXPECT().
-				RunCmd("/repo", "git", "worktree", "add", "/dest", "bad-ref").
+				RunCmd("/repo", "git", "worktree", "add", "--detach", "/dest", "bad-ref").
 				Return(errors.New("unknown revision")).Once()
 
 			err := git.AddWorktree("/repo", "/dest", "bad-ref")

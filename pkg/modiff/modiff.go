@@ -42,7 +42,11 @@ type Config struct {
 }
 
 // NewConfig creates a new configuration
-func NewConfig(repository, referenceClone, from, to string, link, includeIndirect, includeEmpty bool, headerLevel uint) *Config {
+func NewConfig(
+	repository, referenceClone, from, to string,
+	link, includeIndirect, includeEmpty bool,
+	headerLevel uint,
+) *Config {
 	// Make sure we have an absolute path to our reference repository if we got one
 	if referenceClone != "" {
 		absClone, err := filepath.Abs(referenceClone)
@@ -56,12 +60,55 @@ func NewConfig(repository, referenceClone, from, to string, link, includeIndirec
 	return &Config{repository, referenceClone, from, to, link, includeIndirect, includeEmpty, headerLevel}
 }
 
+// DetectLocalRepository inspects the provided directory and returns the
+// repository name as well as the top level path of the git repository it
+// belongs to. It fails if the directory is not part of a git repository or if
+// that repository does not contain a go module.
+//
+// The repository name is taken from the URL of the `origin` remote and falls
+// back to the module path if no usable remote is configured.
+func DetectLocalRepository(dir string) (repository, topLevel string, err error) {
+	topLevel, err = git.GetTopLevel(dir)
+	if err != nil {
+		return "", "", fmt.Errorf("%s is not part of a git repository: %w", dir, err)
+	}
+
+	modulePath, err := gomod.ModulePath(topLevel)
+	if err != nil {
+		return "", "", fmt.Errorf(
+			"git repository %s does not contain a go module: %w", topLevel, err,
+		)
+	}
+	logrus.Infof("Detected go module %s in git repository %s", modulePath, topLevel)
+
+	repository = gomod.RepositoryPath(modulePath)
+	remoteURL, err := git.RemoteURL(topLevel, git.DefaultRemote)
+	if err != nil {
+		logrus.Debugf(
+			"Unable to read the URL of the %s remote, using the module path: %v",
+			git.DefaultRemote, err,
+		)
+	} else if normalized := git.NormalizeRemoteURL(remoteURL); normalized != "" {
+		repository = normalized
+	} else {
+		logrus.Debugf(
+			"Remote URL %s does not name a remote repository, using the module path",
+			remoteURL,
+		)
+	}
+	logrus.Infof("Detected repository %s", repository)
+
+	return repository, topLevel, nil
+}
+
 // Run starts go modiff and returns the markdown string
 func Run(_ context.Context, config *Config) (string, error) {
-
 	if config == nil {
 		return "", fmt.Errorf("configuration cannot be nil")
 	}
+
+	// Work on a copy so that auto detection does not modify the caller's config
+	cfg := *config
 
 	// Enable to modules
 	err := os.Setenv("GO111MODULE", "on")
@@ -69,11 +116,29 @@ func Run(_ context.Context, config *Config) (string, error) {
 		return "", fmt.Errorf("unable to set GO111MODULE env var to on: %w", err)
 	}
 
-	// Validate the flags
-	if config.repository == "" {
-		return "", fmt.Errorf("no repository name was provided")
+	// Fall back to the local repository if no repository was provided
+	if cfg.repository == "" {
+		searchDir := cfg.referenceClone
+		if searchDir == "" {
+			searchDir, err = os.Getwd()
+			if err != nil {
+				return "", fmt.Errorf("unable to get the current working directory: %w", err)
+			}
+		}
+
+		logrus.Infof("No repository provided, detecting the one in %s", searchDir)
+		repository, topLevel, err := DetectLocalRepository(searchDir)
+		if err != nil {
+			return "", fmt.Errorf("unable to detect the local repository: %w", err)
+		}
+		cfg.repository = repository
+		if cfg.referenceClone == "" {
+			cfg.referenceClone = topLevel
+		}
 	}
-	if config.from == config.to {
+
+	// Validate the flags
+	if cfg.from == cfg.to {
 		return "", fmt.Errorf("`to` and `from` git refs cannot be equal")
 	}
 
@@ -88,38 +153,38 @@ func Run(_ context.Context, config *Config) (string, error) {
 	fromWorktreePath := filepath.Join(dir, "from")
 	toWorktreePath := filepath.Join(dir, "to")
 
-	if config.referenceClone != "" {
-		referenceRepo = config.referenceClone
+	if cfg.referenceClone != "" {
+		referenceRepo = cfg.referenceClone
 		logrus.Infof("Using %s as our reference repository", referenceRepo)
 	} else {
 		referenceRepo = filepath.Join(dir, "reference")
-		logrus.Infof("Cloning base repository for %s to %s", config.repository, referenceRepo)
-		if err := git.Run(dir, "clone", "--filter=blob:none", "--bare", toURL(config.repository), referenceRepo); err != nil {
+		logrus.Infof("Cloning base repository for %s to %s", cfg.repository, referenceRepo)
+		if err := git.Run(dir, "clone", "--filter=blob:none", "--bare", toURL(cfg.repository), referenceRepo); err != nil {
 			return "", fmt.Errorf("unable to run git command: %w", err)
 		}
 	}
 
-	logrus.Infof("Setting up 'from' worktree for '%s' at %s", config.from, fromWorktreePath)
-	if err := git.AddWorktree(referenceRepo, fromWorktreePath, config.from); err != nil {
+	logrus.Infof("Setting up 'from' worktree for '%s' at %s", cfg.from, fromWorktreePath)
+	if err := git.AddWorktree(referenceRepo, fromWorktreePath, cfg.from); err != nil {
 		return "", fmt.Errorf("unable to create git worktree: %w", err)
 	}
 
 	defer git.RemoveWorktree(referenceRepo, fromWorktreePath)
 
-	logrus.Infof("Setting up 'to' worktree for '%s' at %s", config.to, toWorktreePath)
-	if err := git.AddWorktree(referenceRepo, toWorktreePath, config.to); err != nil {
+	logrus.Infof("Setting up 'to' worktree for '%s' at %s", cfg.to, toWorktreePath)
+	if err := git.AddWorktree(referenceRepo, toWorktreePath, cfg.to); err != nil {
 		return "", fmt.Errorf("unable to create git worktree: %w", err)
 	}
 
 	defer git.RemoveWorktree(referenceRepo, toWorktreePath)
 
 	// Retrieve and diff the modules
-	mods, err := getModules(dir, config.indirect)
+	mods, err := getModules(dir, cfg.indirect)
 	if err != nil {
 		return "", err
 	}
 
-	return diffModules(mods, config.link, config.empty, config.headerLevel), nil
+	return diffModules(mods, cfg.link, cfg.empty, cfg.headerLevel), nil
 }
 
 func toURL(name string) string {
@@ -206,7 +271,7 @@ func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 		} else if mod.afterVersion == "" {
 			if addLinks && oldModInfo.IsGitHostWeKnow() {
 				txt += fmt.Sprintf("[%s](%s)",
-					mod.beforeVersion, newModInfo.CommitLink())
+					mod.beforeVersion, oldModInfo.CommitLink())
 			} else {
 				txt += mod.beforeVersion
 			}

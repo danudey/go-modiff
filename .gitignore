@@ -7,6 +7,6 @@
 *.so
 *.test
 *_junit.xml
-/build
+/bin
 coverprofile*
 vendor

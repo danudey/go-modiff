@@ -18,7 +18,10 @@ go-modiff
 [--from|-f]=[value]
 [--header-level|-i]=[value]
 [--help|-h]
+[--include-empty|-e]
+[--include-indirect|-I]
 [--link|-l]
+[--reference-clone]=[value]
 [--repository|-r]=[value]
 [--to|-t]=[value]
 [--version|-v]
@@ -44,7 +47,7 @@ Command line tool for diffing go module dependency changes between versions
 \fB--debug, -d\fP: enable debug output
 
 .PP
-\fB--from, -f\fP="": the start of the comparison, any valid git rev (default: master)
+\fB--from, -f\fP="": the start of the comparison, any valid git rev (default: "master")
 
 .PP
 \fB--header-level, -i\fP="": add a higher markdown header level depth (default: 1)
@@ -53,13 +56,22 @@ Command line tool for diffing go module dependency changes between versions
 \fB--help, -h\fP: show help
 
 .PP
+\fB--include-empty, -e\fP: include empty added/changed/removed sections
+
+.PP
+\fB--include-indirect, -I\fP: include indirect imports
+
+.PP
 \fB--link, -l\fP: add diff links to the markdown output
 
 .PP
-\fB--repository, -r\fP="": repository to be used, like: github.com/owner/repo
+\fB--reference-clone\fP="": path to an existing clone to use as the reference
 
 .PP
-\fB--to, -t\fP="": the end of the comparison, any valid git rev (default: master)
+\fB--repository, -r\fP="": repository to be used, like: github.com/owner/repo (defaults to the go module of the local git repository)
+
+.PP
+\fB--to, -t\fP="": the end of the comparison, any valid git rev (default: "master")
 
 .PP
 \fB--version, -v\fP: print the version
@@ -85,9 +97,15 @@ Shows a list of commands or help for one command
 
 .SH fish, f
 .PP
-generate the fish shell completion
+generate the fish shell completion and print it to stdout
+
+.PP
+\fB--help, -h\fP: show help
+
+.SS help, h
+.PP
+Shows a list of commands or help for one command
 
 .SH help, h
 .PP
 Shows a list of commands or help for one command
-

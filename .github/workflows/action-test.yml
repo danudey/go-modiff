@@ -1,0 +1,72 @@
+---
+name: action
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  action:
+    name: run the go-modiff action against this repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # go-modiff needs the full history and all tags to compare revisions
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: detect the revisions automatically
+        id: modiff
+        uses: ./
+
+      - name: check the outputs
+        env:
+          MARKDOWN: ${{ steps.modiff.outputs.markdown }}
+          FROM: ${{ steps.modiff.outputs.from }}
+          TO: ${{ steps.modiff.outputs.to }}
+          REPOSITORY: ${{ steps.modiff.outputs.repository }}
+          EMPTY: ${{ steps.modiff.outputs.empty }}
+          FILE: ${{ steps.modiff.outputs.file }}
+        run: |
+          set -euo pipefail
+          printf 'from=%s to=%s repository=%s empty=%s\n' \
+            "$FROM" "$TO" "$REPOSITORY" "$EMPTY"
+          test -s "$FILE"
+          grep -q '^# Dependencies' <<<"$MARKDOWN"
+
+      - name: use explicit revisions and options
+        id: explicit
+        uses: ./
+        with:
+          from: v1.3.4
+          to: v1.3.5
+          header-level: '2'
+          include-empty: 'true'
+          include-indirect: 'true'
+          link: 'false'
+          step-summary: 'false'
+          output-file: ${{ runner.temp }}/explicit.md
+
+      - name: check the explicit outputs
+        env:
+          MARKDOWN: ${{ steps.explicit.outputs.markdown }}
+          FROM: ${{ steps.explicit.outputs.from }}
+          TO: ${{ steps.explicit.outputs.to }}
+          FILE: ${{ steps.explicit.outputs.file }}
+          EXPECTED_FILE: ${{ runner.temp }}/explicit.md
+        run: |
+          set -euo pipefail
+          test "$FROM" = v1.3.4
+          test "$TO" = v1.3.5
+          test "$FILE" = "$EXPECTED_FILE"
+          grep -q '^## Dependencies' <<<"$MARKDOWN"
+          grep -q '^### Removed' <<<"$MARKDOWN"

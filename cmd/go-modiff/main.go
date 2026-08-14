@@ -24,6 +24,9 @@ const (
 )
 
 func main() {
+	// Init the logging facade
+	logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
+
 	app := ccli.NewCommand()
 	app.Name = "go-modiff"
 	app.Version = "2.0.0"
@@ -37,9 +40,10 @@ func main() {
 	app.UseShortOptionHandling = true
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
-			Name:      repositoryArg,
-			Aliases:   []string{"r"},
-			Usage:     "repository to be used, like: github.com/owner/repo",
+			Name:    repositoryArg,
+			Aliases: []string{"r"},
+			Usage: "repository to be used, like: github.com/owner/repo " +
+				"(defaults to the go module of the local git repository)",
 			TakesFile: false,
 		},
 		&cli.StringFlag{
@@ -74,7 +78,7 @@ func main() {
 		},
 		&cli.BoolFlag{
 			Name:    includeIndirect,
-			Aliases: []string{"i"},
+			Aliases: []string{"I"},
 			Value:   false,
 			Usage:   "include indirect imports",
 		},
@@ -91,9 +95,7 @@ func main() {
 		},
 	}
 	app.Action = func(ctx context.Context, c *cli.Command) error {
-		// Init the logging facade
-		logrus.SetFormatter(&logrus.TextFormatter{DisableTimestamp: true})
-		if c.Bool("debug") {
+		if c.Bool(debugFlag) {
 			logrus.SetLevel(logrus.DebugLevel)
 			logrus.Debug("Enabled debug output")
 		} else {
@@ -101,7 +103,6 @@ func main() {
 		}
 
 		// Run modiff
-		fmt.Println(c.Bool(includeIndirect))
 		config := modiff.NewConfig(
 			c.String(repositoryArg),
 			c.String(referenceCloneArg),
@@ -114,15 +115,19 @@ func main() {
 		)
 		res, err := modiff.Run(ctx, config)
 		if err != nil {
-			logrus.WithError(err).Error("Failed to execute")
-			// fmt.Errorf("unable to run: %w", err)
+			return fmt.Errorf("unable to run: %w", err)
 		}
 		logrus.Info("Done, the result will be printed to `stdout`")
 		fmt.Print(res)
 
 		return nil
 	}
+	app.Commands = docsCommands(app)
+	// Apply the colored help templates to the added subcommands as well
+	ccli.Apply(app)
+
 	if err := app.Run(context.Background(), os.Args); err != nil {
+		logrus.WithError(err).Error("Failed to execute")
 		os.Exit(1)
 	}
 }

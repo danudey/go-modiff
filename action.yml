@@ -1,0 +1,288 @@
+---
+name: go-modiff
+description: >-
+  Diff the go module dependency changes of a repository between two git
+  revisions and render the result as markdown
+author: Sascha Grunert, Daniel Fox
+
+branding:
+  icon: git-commit
+  color: blue
+
+inputs:
+  working-directory:
+    description: >-
+      Directory of the already checked out go module, relative to the workspace.
+    required: false
+    default: .
+  repository:
+    description: >-
+      Repository to be used, like `github.com/owner/repo`. Defaults to the go
+      module found in `working-directory`.
+    required: false
+    default: ''
+  reference-clone:
+    description: >-
+      Path to an existing clone to use as the reference. Defaults to the
+      repository in `working-directory`.
+    required: false
+    default: ''
+  from:
+    description: >-
+      The start of the comparison, any valid git rev. Defaults to the most
+      recent release tag reachable from the current ref.
+    required: false
+    default: ''
+  to:
+    description: >-
+      The end of the comparison, any valid git rev. Defaults to the currently
+      checked out commit.
+    required: false
+    default: ''
+  tag-pattern:
+    description: >-
+      Glob matching the release tags considered while detecting `from`.
+    required: false
+    default: v*
+  include-prereleases:
+    description: >-
+      Consider pre-release tags, those carrying a `-` such as `v1.0.0-rc.1`,
+      while detecting `from`.
+    required: false
+    default: 'false'
+  link:
+    description: Add diff links to the markdown output.
+    required: false
+    default: 'true'
+  header-level:
+    description: The markdown header level depth of the output.
+    required: false
+    default: '1'
+  include-indirect:
+    description: Include indirect imports.
+    required: false
+    default: 'false'
+  include-empty:
+    description: Include empty added/changed/removed sections.
+    required: false
+    default: 'false'
+  debug:
+    description: >-
+      Enable debug output. Also enabled automatically when the workflow is run
+      with debug logging, so a re-run with debug logging enabled needs no
+      change here.
+    required: false
+    default: 'false'
+  fetch-history:
+    description: >-
+      Fetch the full history and all tags when the checkout is shallow or
+      carries no tags. Both are needed to resolve `from`.
+    required: false
+    default: 'true'
+  output-file:
+    description: >-
+      File the markdown is written to. Defaults to a file below `RUNNER_TEMP`.
+    required: false
+    default: ''
+  step-summary:
+    description: Append the markdown to the job summary.
+    required: false
+    default: 'true'
+
+outputs:
+  markdown:
+    description: The rendered markdown dependency diff.
+    value: ${{ steps.modiff.outputs.markdown }}
+  file:
+    description: Path of the file the markdown was written to.
+    value: ${{ steps.modiff.outputs.file }}
+  from:
+    description: The git rev the comparison started at.
+    value: ${{ steps.revisions.outputs.from }}
+  to:
+    description: The git rev the comparison ended at.
+    value: ${{ steps.revisions.outputs.to }}
+  repository:
+    description: The repository the diff was created for.
+    value: ${{ steps.modiff.outputs.repository }}
+  empty:
+    description: '`true` if no dependency was added, changed or removed.'
+    value: ${{ steps.modiff.outputs.empty }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build go-modiff
+      id: build
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+
+        if ! command -v go >/dev/null 2>&1; then
+          echo "::error::go is not installed on this runner." \
+            "Run actions/setup-go before this action."
+          exit 1
+        fi
+        go version
+
+        binary="${RUNNER_TEMP}/go-modiff/go-modiff"
+        mkdir -p "$(dirname "$binary")"
+        # The action is built from its own checkout so that the binary always
+        # matches the referenced action version. The build is isolated from the
+        # settings of the repository being diffed.
+        GOFLAGS=-mod=mod GOWORK=off go build -C "$ACTION_PATH" \
+          -ldflags '-s -w' -o "$binary" ./cmd/go-modiff
+        echo "binary=$binary" >>"$GITHUB_OUTPUT"
+
+    - name: Detect revisions
+      id: revisions
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        INPUT_FROM: ${{ inputs.from }}
+        INPUT_TO: ${{ inputs.to }}
+        TAG_PATTERN: ${{ inputs.tag-pattern }}
+        INCLUDE_PRERELEASES: ${{ inputs.include-prereleases }}
+        FETCH_HISTORY: ${{ inputs.fetch-history }}
+      run: |
+        set -euo pipefail
+
+        if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+          echo "::error::$(pwd) is not a git repository." \
+            "Run actions/checkout before this action."
+          exit 1
+        fi
+
+        # Both the release tags and the history behind them are required to
+        # create worktrees for the compared revisions
+        if [[ "$FETCH_HISTORY" == "true" ]]; then
+          if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+            echo "Checkout is shallow, fetching the full history and tags"
+            git fetch --quiet --unshallow --tags --force
+          elif [[ -z "$(git tag --list)" ]]; then
+            echo "Checkout carries no tags, fetching them"
+            git fetch --quiet --tags --force
+          fi
+        fi
+
+        to="$INPUT_TO"
+        if [[ -z "$to" ]]; then
+          to="$(git rev-parse HEAD)"
+          echo "Detected 'to' revision $to"
+        fi
+
+        from="$INPUT_FROM"
+        if [[ -z "$from" ]]; then
+          # The highest version tag reachable from the current ref, skipping
+          # tags which point at the revision we compare against
+          to_commit="$(git rev-parse "${to}^{commit}")"
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            if [[ "$INCLUDE_PRERELEASES" != "true" && "$tag" == *-* ]]; then
+              echo "Skipping pre-release tag $tag"
+              continue
+            fi
+            if [[ "$(git rev-parse "${tag}^{commit}")" == "$to_commit" ]]; then
+              echo "Skipping tag $tag, it points at the 'to' revision"
+              continue
+            fi
+            from="$tag"
+            break
+          # versionsort.suffix makes `v1.0.0-rc.1` sort before `v1.0.0`
+          done < <(git -c versionsort.suffix=- tag --list "$TAG_PATTERN" \
+            --sort=-v:refname --merged "$to")
+
+          if [[ -z "$from" ]]; then
+            echo "::error::Unable to detect the most recent release matching" \
+              "'$TAG_PATTERN' before $to. Check out the repository with" \
+              "'fetch-depth: 0' or set the 'from' input explicitly."
+            exit 1
+          fi
+          echo "Detected 'from' revision $from"
+        fi
+
+        if [[ "$from" == "$to" ]]; then
+          echo "::error::The 'from' and 'to' revisions are both '$from'," \
+            "there is nothing to compare."
+          exit 1
+        fi
+
+        echo "from=$from" >>"$GITHUB_OUTPUT"
+        echo "to=$to" >>"$GITHUB_OUTPUT"
+
+    - name: Run go-modiff
+      id: modiff
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BINARY: ${{ steps.build.outputs.binary }}
+        FROM: ${{ steps.revisions.outputs.from }}
+        TO: ${{ steps.revisions.outputs.to }}
+        REPOSITORY: ${{ inputs.repository }}
+        REFERENCE_CLONE: ${{ inputs.reference-clone }}
+        LINK: ${{ inputs.link }}
+        HEADER_LEVEL: ${{ inputs.header-level }}
+        INCLUDE_INDIRECT: ${{ inputs.include-indirect }}
+        INCLUDE_EMPTY: ${{ inputs.include-empty }}
+        DEBUG: ${{ inputs.debug }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        STEP_SUMMARY: ${{ inputs.step-summary }}
+      run: |
+        set -euo pipefail
+
+        args=(--from "$FROM" --to "$TO" --header-level "$HEADER_LEVEL")
+        if [[ -n "$REPOSITORY" ]]; then
+          args+=(--repository "$REPOSITORY")
+        fi
+        if [[ -n "$REFERENCE_CLONE" ]]; then
+          args+=(--reference-clone "$REFERENCE_CLONE")
+        fi
+        if [[ "$LINK" == "true" ]]; then
+          args+=(--link)
+        fi
+        if [[ "$INCLUDE_INDIRECT" == "true" ]]; then
+          args+=(--include-indirect)
+        fi
+        if [[ "$INCLUDE_EMPTY" == "true" ]]; then
+          args+=(--include-empty)
+        fi
+        # RUNNER_DEBUG is set when the workflow is run with debug logging, so a
+        # re-run with debug logging enabled turns on debug output here too
+        if [[ "$DEBUG" == "true" || "${RUNNER_DEBUG:-}" == "1" ]]; then
+          args+=(--debug)
+        fi
+
+        file="$OUTPUT_FILE"
+        if [[ -z "$file" ]]; then
+          file="${RUNNER_TEMP}/go-modiff/dependencies.md"
+        fi
+        mkdir -p "$(dirname "$file")"
+
+        "$BINARY" "${args[@]}" >"$file"
+        cat "$file"
+
+        repository="$REPOSITORY"
+        if [[ -z "$repository" ]]; then
+          repository="${GITHUB_SERVER_URL#*://}/${GITHUB_REPOSITORY}"
+        fi
+
+        empty=true
+        if grep -q '^- ' "$file"; then
+          empty=false
+        fi
+
+        delimiter="go-modiff-$(date +%s)-$RANDOM"
+        {
+          echo "markdown<<$delimiter"
+          cat "$file"
+          echo "$delimiter"
+          echo "file=$file"
+          echo "repository=$repository"
+          echo "empty=$empty"
+        } >>"$GITHUB_OUTPUT"
+
+        if [[ "$STEP_SUMMARY" == "true" ]]; then
+          cat "$file" >>"$GITHUB_STEP_SUMMARY"
+        fi

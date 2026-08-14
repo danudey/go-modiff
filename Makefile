@@ -1,6 +1,6 @@
 GO ?= go
 
-BUILD_PATH := build
+BUILD_PATH := bin
 COVERAGE_PATH := $(BUILD_PATH)/coverage
 
 GOLANGCI_LINT := $(BUILD_PATH)/golangci-lint

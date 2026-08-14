@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -53,7 +54,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, false, false, 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -65,7 +66,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed with indirect mods", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, false, true, 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, true, true, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -77,7 +78,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed with links", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, true, true, 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, true, true, true, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -97,21 +98,21 @@ var _ = t.Describe("Run", func() {
 		Expect(res).To(BeEmpty())
 	})
 
-	It("should fail if 'repository' not given", func() {
+	It("should detect the local repository if 'repository' not given", func() {
 		// Given
-		config := modiff.NewConfig("", "", from, to, true, false, 1)
+		config := modiff.NewConfig("", "", from, to, false, false, true, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
 
 		// Then
-		Expect(err).To(HaveOccurred())
-		Expect(res).To(BeEmpty())
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res).To(Equal(expected))
 	})
 
 	It("should fail if 'from' equals 'to'", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, "", "", true, false, 1)
+		config := modiff.NewConfig(repo, topLevel, "", "", true, false, false, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -123,7 +124,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if repository is not clone-able", func() {
 		// Given
-		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, 1)
+		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, false, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -135,7 +136,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if the specified reference repository does not exist", func() {
 		// Given
-		config := modiff.NewConfig("", "invalid", from, "", true, false, 1)
+		config := modiff.NewConfig("", "invalid", from, "", true, false, false, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -147,7 +148,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if the repository url is invalid", func() {
 		// Given: no reference clone, so Run() will attempt to clone the bad repo
-		config := modiff.NewConfig(badRepo, "", from, to, true, false, 1)
+		config := modiff.NewConfig(badRepo, "", from, to, true, false, false, 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -155,6 +156,48 @@ var _ = t.Describe("Run", func() {
 		// Then
 		Expect(err).To(HaveOccurred())
 		Expect(res).To(BeEmpty())
+	})
+})
+
+var _ = t.Describe("DetectLocalRepository", func() {
+	It("should detect this repository and its module", func() {
+		// Given
+		cwd, err := os.Getwd()
+		Expect(err).ToNot(HaveOccurred())
+
+		// When
+		repository, topLevel, err := modiff.DetectLocalRepository(cwd)
+
+		// Then
+		Expect(err).ToNot(HaveOccurred())
+		Expect(topLevel).ToNot(BeEmpty())
+		Expect(filepath.Join(topLevel, "go.mod")).To(BeAnExistingFile())
+		Expect(repository).To(HaveSuffix("/go-modiff"))
+	})
+
+	It("should fail outside of a git repository", func() {
+		// Given
+		dir := GinkgoT().TempDir()
+
+		// When
+		_, _, err := modiff.DetectLocalRepository(dir)
+
+		// Then
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not part of a git repository"))
+	})
+
+	It("should fail in a git repository without a go module", func() {
+		// Given
+		dir := GinkgoT().TempDir()
+		Expect(git.Run(dir, "init")).To(Succeed())
+
+		// When
+		_, _, err := modiff.DetectLocalRepository(dir)
+
+		// Then
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("does not contain a go module"))
 	})
 })
 

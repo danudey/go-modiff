@@ -61,6 +61,27 @@ func TestGetGoProxyModInfo(t *testing.T) {
 	})
 }
 
+func TestDiffModulesNoChanges(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prints a message instead of a lone header", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		g.Expect(diffModules(modules{}, false, false, 1)).
+			To(Equal("_No dependency changes._\n"))
+	})
+
+	t.Run("keeps the empty sections when requested", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		res := diffModules(modules{}, false, true, 1)
+		g.Expect(res).To(HavePrefix("# Dependencies\n"))
+		g.Expect(res).To(ContainSubstring("## Added"))
+		g.Expect(res).To(ContainSubstring("## Changed"))
+		g.Expect(res).To(ContainSubstring("## Removed"))
+	})
+}
+
 func TestNewConfig(t *testing.T) {
 	t.Parallel()
 	g := NewGomegaWithT(t)

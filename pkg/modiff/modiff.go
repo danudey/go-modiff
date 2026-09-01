@@ -299,6 +299,12 @@ func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 	logrus.Infof("%d modules changed", len(changed))
 	logrus.Infof("%d modules removed", len(removed))
 
+	// Without the empty sections there would be nothing but a lone header, so
+	// state explicitly that nothing changed instead.
+	if !empty && len(added) == 0 && len(changed) == 0 && len(removed) == 0 {
+		return "_No dependency changes._\n"
+	}
+
 	// Pretty print
 	builder := &strings.Builder{}
 	fmt.Fprintf(

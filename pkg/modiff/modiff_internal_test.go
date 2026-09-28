@@ -59,6 +59,41 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		_, err := getGoProxyModInfo(module, version)
 		g.Expect(err).To(HaveOccurred())
 	})
+
+	t.Run("escapes uppercase letters in the module path", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			g.Expect(r.URL.Path).To(Equal("/github.com/!de!ruina/timberjack/@v/v1.3.9.info"))
+			_, _ = fmt.Fprint(w, `{"Version":"v1.3.9"}`)
+		}))
+		defer server.Close()
+
+		t.Setenv("GOPROXY", server.URL)
+		info, err := getGoProxyModInfo("github.com/DeRuina/timberjack", "v1.3.9")
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(info.Version).To(Equal("v1.3.9"))
+	})
+}
+
+func TestGoProxyServer(t *testing.T) {
+	for _, tc := range []struct {
+		name, goproxy, expected string
+	}{
+		{"empty", "", defaultGoProxy},
+		{"single proxy", "https://example.com", "https://example.com"},
+		{"trailing slash", "https://example.com/", "https://example.com"},
+		{"comma list", "https://a.example.com,https://b.example.com,direct", "https://a.example.com"},
+		{"pipe list", "https://a.example.com|direct", "https://a.example.com"},
+		{"skips keywords", "direct,https://b.example.com", "https://b.example.com"},
+		{"only direct", "direct", defaultGoProxy},
+		{"off", "off", defaultGoProxy},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			t.Setenv("GOPROXY", tc.goproxy)
+			g.Expect(goProxyServer()).To(Equal(tc.expected))
+		})
+	}
 }
 
 func TestDiffModulesNoChanges(t *testing.T) {

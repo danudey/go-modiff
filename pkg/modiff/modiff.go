@@ -18,6 +18,7 @@ import (
 	"github.com/saschagrunert/go-modiff/pkg/gomod"
 	"github.com/saschagrunert/go-modiff/pkg/utils"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/mod/module"
 )
 
 type entry struct {
@@ -191,18 +192,41 @@ func toURL(name string) string {
 	return "https://" + name
 }
 
-func getGoProxyModInfo(module, version string) (gomod.Info, error) {
-	var goProxyServer string
-	goProxyVar, exists := os.LookupEnv("GOPROXY")
+const defaultGoProxy = "https://proxy.golang.org"
 
-	if exists {
-		goProxyServer = goProxyVar
-	} else {
-		goProxyServer = "https://proxy.golang.org"
+// goProxyServer returns the first HTTP(S) proxy listed in GOPROXY. GOPROXY
+// may hold several entries separated by `,` or `|`, as well as the keywords
+// `direct` and `off`, which we cannot query. It falls back to the default
+// proxy if no usable entry exists.
+func goProxyServer() string {
+	entries := strings.FieldsFunc(os.Getenv("GOPROXY"), func(r rune) bool {
+		return r == ',' || r == '|'
+	})
+	for _, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if strings.HasPrefix(entry, "https://") || strings.HasPrefix(entry, "http://") {
+			return strings.TrimSuffix(entry, "/")
+		}
 	}
-	goModInfoURL := fmt.Sprintf("%s/%s/@v/%s.info", goProxyServer, module, version)
+
+	return defaultGoProxy
+}
+
+func getGoProxyModInfo(mod, version string) (gomod.Info, error) {
 	modInfo := gomod.Info{}
-	logrus.Debugf("Fetching go mod info for %s from %s", module, goModInfoURL)
+
+	// The proxy protocol requires uppercase letters to be escaped as `!` + lowercase
+	escapedMod, err := module.EscapePath(mod)
+	if err != nil {
+		return modInfo, fmt.Errorf("invalid module path %s: %w", mod, err)
+	}
+	escapedVersion, err := module.EscapeVersion(version)
+	if err != nil {
+		return modInfo, fmt.Errorf("invalid module version %s: %w", version, err)
+	}
+
+	goModInfoURL := fmt.Sprintf("%s/%s/@v/%s.info", goProxyServer(), escapedMod, escapedVersion)
+	logrus.Debugf("Fetching go mod info for %s from %s", mod, goModInfoURL)
 	resp, err := http.Get(goModInfoURL)
 	if err != nil {
 		return modInfo, fmt.Errorf("could not get go module info from golang module proxy: %w", err)
@@ -210,7 +234,7 @@ func getGoProxyModInfo(module, version string) (gomod.Info, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return modInfo, fmt.Errorf("golang proxy says module version %s@%s does not exist", module, version)
+		return modInfo, fmt.Errorf("golang proxy says module version %s@%s does not exist", mod, version)
 	}
 
 	body, err := io.ReadAll(resp.Body)

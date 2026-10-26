@@ -30,6 +30,33 @@ type entry struct {
 
 type modules = map[string]entry
 
+// GoVersionSource selects where the go versions of a revision are taken from
+type GoVersionSource string
+
+const (
+	// GoVersionSourceModFile uses the `go` and `toolchain` directives of the
+	// `go.mod` file
+	GoVersionSourceModFile GoVersionSource = "go.mod"
+
+	// GoVersionSourceInstalled uses the output of `go version`, run inside of
+	// the revision. This respects toolchain switching via GOTOOLCHAIN and
+	// reflects the toolchain which actually builds the revision.
+	GoVersionSourceInstalled GoVersionSource = "installed"
+)
+
+// Names of the go versions, matching the `go.mod` directives they are read from
+const (
+	goVersionName        = "go"
+	toolchainVersionName = "toolchain"
+)
+
+// goVersion is a single named go version of a revision, like the `go` or
+// `toolchain` directive of a `go.mod` file
+type goVersion struct {
+	name    string
+	version string
+}
+
 // Config is the structure passed to `Run`
 type Config struct {
 	repository     string
@@ -39,13 +66,16 @@ type Config struct {
 	link           bool
 	indirect       bool
 	empty          bool
+	includeGo      bool
+	goSource       GoVersionSource
 	headerLevel    uint
 }
 
 // NewConfig creates a new configuration
 func NewConfig(
 	repository, referenceClone, from, to string,
-	link, includeIndirect, includeEmpty bool,
+	link, includeIndirect, includeEmpty, includeGo bool,
+	goSource GoVersionSource,
 	headerLevel uint,
 ) *Config {
 	// Make sure we have an absolute path to our reference repository if we got one
@@ -58,7 +88,15 @@ func NewConfig(
 		}
 	}
 
-	return &Config{repository, referenceClone, from, to, link, includeIndirect, includeEmpty, headerLevel}
+	if goSource == "" {
+		goSource = GoVersionSourceModFile
+	}
+
+	return &Config{
+		repository, referenceClone, from, to,
+		link, includeIndirect, includeEmpty, includeGo,
+		goSource, headerLevel,
+	}
 }
 
 // DetectLocalRepository inspects the provided directory and returns the
@@ -103,7 +141,7 @@ func DetectLocalRepository(dir string) (repository, topLevel string, err error) 
 }
 
 // Run starts go modiff and returns the markdown string
-func Run(_ context.Context, config *Config) (string, error) {
+func Run(ctx context.Context, config *Config) (string, error) {
 	if config == nil {
 		return "", fmt.Errorf("configuration cannot be nil")
 	}
@@ -141,6 +179,12 @@ func Run(_ context.Context, config *Config) (string, error) {
 	// Validate the flags
 	if cfg.from == cfg.to {
 		return "", fmt.Errorf("`to` and `from` git refs cannot be equal")
+	}
+	if cfg.goSource != GoVersionSourceModFile && cfg.goSource != GoVersionSourceInstalled {
+		return "", fmt.Errorf(
+			"unknown go version source %q, expected %q or %q",
+			cfg.goSource, GoVersionSourceModFile, GoVersionSourceInstalled,
+		)
 	}
 
 	// Prepare the environment
@@ -180,12 +224,20 @@ func Run(_ context.Context, config *Config) (string, error) {
 	defer git.RemoveWorktree(referenceRepo, toWorktreePath)
 
 	// Retrieve and diff the modules
-	mods, err := getModules(dir, cfg.indirect)
+	mods, err := getModules(ctx, dir, cfg.indirect)
 	if err != nil {
 		return "", err
 	}
 
-	return diffModules(mods, cfg.link, cfg.empty, cfg.headerLevel), nil
+	var goChanges []string
+	if cfg.includeGo {
+		goChanges, err = getGoChanges(ctx, dir, cfg.goSource)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	return diffModules(mods, goChanges, cfg.includeGo, cfg.link, cfg.empty, cfg.headerLevel), nil
 }
 
 func toURL(name string) string {
@@ -249,26 +301,12 @@ func getGoProxyModInfo(mod, version string) (gomod.Info, error) {
 	return modInfo, nil
 }
 
-func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
+func diffModules(mods modules, goChanges []string, includeGo, addLinks, empty bool, headerLevel uint) string {
 	var added, removed, changed []string
 	for name, mod := range mods {
-		var oldModInfo gomod.Info
-		var newModInfo gomod.Info
-		var err error
 		var txt string
-
-		if mod.beforeVersion != "" {
-			oldModInfo, err = getGoProxyModInfo(mod.name, mod.beforeVersion)
-			if err != nil {
-				logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, mod.beforeVersion)
-			}
-		}
-		if mod.afterVersion != "" {
-			newModInfo, err = getGoProxyModInfo(mod.name, mod.afterVersion)
-			if err != nil {
-				logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, mod.afterVersion)
-			}
-		}
+		oldModInfo := fetchModInfo(&mod, mod.beforeVersion)
+		newModInfo := fetchModInfo(&mod, mod.afterVersion)
 
 		var modURL string
 		if oldModInfo.Origin.URL != "" {
@@ -323,9 +361,28 @@ func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 	logrus.Infof("%d modules changed", len(changed))
 	logrus.Infof("%d modules removed", len(removed))
 
+	return renderMarkdown(goChanges, added, changed, removed, includeGo, empty, headerLevel)
+}
+
+// fetchModInfo retrieves the proxy information of the provided module version.
+// It returns empty information if the version is empty or the lookup fails.
+func fetchModInfo(mod *entry, version string) gomod.Info {
+	if version == "" {
+		return gomod.Info{}
+	}
+
+	info, err := getGoProxyModInfo(mod.name, version)
+	if err != nil {
+		logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, version)
+	}
+
+	return info
+}
+
+func renderMarkdown(goChanges, added, changed, removed []string, includeGo, empty bool, headerLevel uint) string {
 	// Without the empty sections there would be nothing but a lone header, so
 	// state explicitly that nothing changed instead.
-	if !empty && len(added) == 0 && len(changed) == 0 && len(removed) == 0 {
+	if !empty && len(goChanges) == 0 && len(added) == 0 && len(changed) == 0 && len(removed) == 0 {
 		return "_No dependency changes._\n"
 	}
 
@@ -351,6 +408,9 @@ func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 			builder.WriteString("_Nothing has changed._\n")
 		}
 	}
+	if includeGo {
+		forEach("Go", goChanges)
+	}
 	forEach("Added", added)
 	forEach("Changed", changed)
 	forEach("Removed", removed)
@@ -358,13 +418,104 @@ func diffModules(mods modules, addLinks, empty bool, headerLevel uint) string {
 	return builder.String()
 }
 
-func getModules(workDir string, indirect bool) (modules, error) {
-	// Retrieve all modules
-	before, err := retrieveModules(filepath.Join(workDir, "from"), indirect)
+func getGoChanges(ctx context.Context, workDir string, source GoVersionSource) ([]string, error) {
+	logrus.Infof("Retrieving go versions from %s", source)
+	before, err := retrieveGoVersions(ctx, filepath.Join(workDir, "from"), source)
 	if err != nil {
 		return nil, err
 	}
-	after, err := retrieveModules(filepath.Join(workDir, "to"), indirect)
+	after, err := retrieveGoVersions(ctx, filepath.Join(workDir, "to"), source)
+	if err != nil {
+		return nil, err
+	}
+
+	changes := diffGoVersions(before, after)
+	logrus.Infof("%d go versions changed", len(changes))
+
+	return changes, nil
+}
+
+// diffGoVersions returns a markdown list entry for every go version which
+// differs between both revisions, in the order they appear in
+func diffGoVersions(before, after []goVersion) []string {
+	var names []string
+	beforeVersions := map[string]string{}
+	afterVersions := map[string]string{}
+	for _, v := range before {
+		names = append(names, v.name)
+		beforeVersions[v.name] = v.version
+	}
+	for _, v := range after {
+		if _, ok := beforeVersions[v.name]; !ok {
+			names = append(names, v.name)
+		}
+		afterVersions[v.name] = v.version
+	}
+
+	orNone := func(version string) string {
+		if version == "" {
+			return "none"
+		}
+
+		return version
+	}
+
+	var changes []string
+	for _, name := range names {
+		beforeVersion, afterVersion := beforeVersions[name], afterVersions[name]
+		if beforeVersion == afterVersion {
+			continue
+		}
+		changes = append(changes, fmt.Sprintf(
+			"- %#q: %s → %s", name, orNone(beforeVersion), orNone(afterVersion),
+		))
+	}
+
+	return changes
+}
+
+func retrieveGoVersions(ctx context.Context, workDir string, source GoVersionSource) ([]goVersion, error) {
+	if source == GoVersionSourceInstalled {
+		logrus.Debugf("Running go version in %s", workDir)
+		output, err := utils.RunCmdOutput(ctx, workDir, "go", "version")
+		if err != nil {
+			return nil, fmt.Errorf("unable to get the installed go version: %w", err)
+		}
+		version, err := parseGoVersionOutput(string(output))
+		if err != nil {
+			return nil, err
+		}
+
+		return []goVersion{{goVersionName, version}}, nil
+	}
+
+	logrus.Debugf("Reading go versions of the go.mod file in %s", workDir)
+	goDirective, toolchain, err := gomod.GoVersions(workDir)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get the go versions of go.mod: %w", err)
+	}
+
+	return []goVersion{{goVersionName, goDirective}, {toolchainVersionName, toolchain}}, nil
+}
+
+// parseGoVersionOutput extracts the version from the output of `go version`,
+// like `go1.26.1` from `go version go1.26.1 linux/amd64`
+func parseGoVersionOutput(output string) (string, error) {
+	fields := strings.Fields(output)
+	if len(fields) < 3 || fields[0] != "go" || fields[1] != "version" {
+		return "", fmt.Errorf("unexpected output of go version: %q", output)
+	}
+
+	return fields[2], nil
+}
+
+func getModules(ctx context.Context, workDir string, indirect bool) (modules, error) {
+	// Retrieve all modules
+	before, err := retrieveModules(ctx, filepath.Join(workDir, "from"), indirect)
+	if err != nil {
+		return nil, err
+	}
+	after, err := retrieveModules(ctx, filepath.Join(workDir, "to"), indirect)
 	if err != nil {
 		return nil, err
 	}
@@ -491,14 +642,14 @@ func CheckURLValid(client http.Client, url string) (bool, error) {
 	return true, nil
 }
 
-func retrieveModules(workDir string, indirect bool) (string, error) {
+func retrieveModules(ctx context.Context, workDir string, indirect bool) (string, error) {
 	logrus.Debugf("Listing go modules in %s", workDir)
 	cmdArgs := []string{"list"}
 	if !indirect {
 		cmdArgs = append(cmdArgs, "-f", "{{if not .Indirect }}{{.String}}{{end}}")
 	}
 	cmdArgs = append(cmdArgs, "-mod=readonly", "-m", "all")
-	mods, err := utils.RunCmdOutput(workDir, "go", cmdArgs...)
+	mods, err := utils.RunCmdOutput(ctx, workDir, "go", cmdArgs...)
 	if err != nil {
 		logrus.Error(err)
 

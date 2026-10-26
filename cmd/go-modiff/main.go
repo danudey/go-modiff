@@ -20,6 +20,8 @@ const (
 	headerLevelArg       = "header-level"
 	includeIndirect      = "include-indirect"
 	includeEmptySections = "include-empty"
+	includeGoArg         = "include-go"
+	goVersionSourceArg   = "go-version-source"
 	debugFlag            = "debug"
 )
 
@@ -89,6 +91,20 @@ func main() {
 			Usage:   "include empty added/changed/removed sections",
 		},
 		&cli.BoolFlag{
+			Name:    includeGoArg,
+			Aliases: []string{"g"},
+			Value:   false,
+			Usage:   "include changes of the go version",
+		},
+		&cli.StringFlag{
+			Name:  goVersionSourceArg,
+			Value: string(modiff.GoVersionSourceModFile),
+			Usage: "where the go versions are taken from: " +
+				"'go.mod' for its go and toolchain directives, " +
+				"'installed' for the output of 'go version' within each revision",
+			TakesFile: false,
+		},
+		&cli.BoolFlag{
 			Name:    debugFlag,
 			Aliases: []string{"d"},
 			Usage:   "enable debug output",
@@ -111,6 +127,8 @@ func main() {
 			c.Bool(linkArg),
 			c.Bool(includeIndirect),
 			c.Bool(includeEmptySections),
+			c.Bool(includeGoArg),
+			modiff.GoVersionSource(c.String(goVersionSourceArg)),
 			c.Uint(headerLevelArg),
 		)
 		res, err := modiff.Run(ctx, config)

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"golang.org/x/mod/modfile"
 )
 
 // ModFileName is the name of the file declaring a go module
@@ -47,6 +49,31 @@ func ModulePath(dir string) (string, error) {
 	}
 
 	return "", fmt.Errorf("no module directive found in %s", modFile)
+}
+
+// GoVersions reads the `go.mod` file in the provided directory and returns
+// the versions of its `go` and `toolchain` directives. Each of them is empty
+// if the directive is missing.
+func GoVersions(dir string) (goVersion, toolchain string, err error) {
+	modFile := filepath.Join(dir, ModFileName)
+	data, err := os.ReadFile(modFile)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to read %s: %w", modFile, err)
+	}
+
+	file, err := modfile.Parse(modFile, data, nil)
+	if err != nil {
+		return "", "", fmt.Errorf("unable to parse %s: %w", modFile, err)
+	}
+
+	if file.Go != nil {
+		goVersion = file.Go.Version
+	}
+	if file.Toolchain != nil {
+		toolchain = file.Toolchain.Name
+	}
+
+	return goVersion, toolchain, nil
 }
 
 // RepositoryPath strips the major version suffix, like `/v2`, from a module

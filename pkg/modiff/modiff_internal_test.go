@@ -13,8 +13,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const exampleModule = "github.com/example/repo"
+
 func TestGetGoProxyModInfo(t *testing.T) {
-	module := "github.com/example/repo"
+	module := exampleModule
 	version := "v1.2.3"
 
 	t.Run("returns parsed info including Origin", func(t *testing.T) {
@@ -143,6 +145,38 @@ func TestDiffModulesGoSection(t *testing.T) {
 		res := diffModules(context.Background(), modules{}, nil, false, false, true, 1)
 		g.Expect(res).ToNot(ContainSubstring("## Go"))
 	})
+}
+
+func TestDiffModulesPseudoVersions(t *testing.T) {
+	g := NewGomegaWithT(t)
+	const (
+		before = "v0.0.0-20260414002931-afd174a4e478"
+		after  = "v0.0.0-20260526163538-3dc84a4a5aaa"
+	)
+
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requested = append(requested, r.URL.Path)
+		_, _ = fmt.Fprint(w, `{"Origin":{"URL":"https://github.com/example/repo","Hash":"abc123"}}`)
+	}))
+	defer server.Close()
+
+	t.Setenv("GOPROXY", server.URL)
+	mods := modules{exampleModule: {
+		beforeVersion: before,
+		afterVersion:  after,
+		linkPrefix:    exampleModule,
+		name:          exampleModule,
+	}}
+	res := diffModules(context.Background(), mods, nil, false, true, false, 1)
+
+	// The proxy cannot resolve abbreviated hashes, so it needs the full versions
+	g.Expect(requested).To(ConsistOf(
+		"/"+exampleModule+"/@v/"+before+".info",
+		"/"+exampleModule+"/@v/"+after+".info",
+	))
+	// The output still shows the abbreviated hashes
+	g.Expect(res).To(ContainSubstring("[afd174a → 3dc84a4]("))
 }
 
 func TestDiffGoVersions(t *testing.T) {

@@ -314,6 +314,8 @@ func diffModules(
 		var txt string
 		oldModInfo := fetchModInfo(ctx, &mod, mod.beforeVersion)
 		newModInfo := fetchModInfo(ctx, &mod, mod.afterVersion)
+		beforeVersion := prettifyVersion(mod.beforeVersion)
+		afterVersion := prettifyVersion(mod.afterVersion)
 
 		var modURL string
 		if oldModInfo.Origin.URL != "" {
@@ -332,17 +334,17 @@ func diffModules(
 			if addLinks && newModInfo.IsGitHostWeKnow() {
 				// Insert the tree part of the URL at index 3 to account for tag names with slashes
 				txt += fmt.Sprintf("[%s](%s)",
-					mod.afterVersion, newModInfo.CommitLink())
+					afterVersion, newModInfo.CommitLink())
 			} else {
-				txt += mod.afterVersion
+				txt += afterVersion
 			}
 			added = append(added, txt)
 		} else if mod.afterVersion == "" {
 			if addLinks && oldModInfo.IsGitHostWeKnow() {
 				txt += fmt.Sprintf("[%s](%s)",
-					mod.beforeVersion, oldModInfo.CommitLink())
+					beforeVersion, oldModInfo.CommitLink())
 			} else {
-				txt += mod.beforeVersion
+				txt += beforeVersion
 			}
 			removed = append(removed, txt)
 		} else if mod.beforeVersion != mod.afterVersion {
@@ -350,13 +352,13 @@ func diffModules(
 				comparisonURL := oldModInfo.CompareLinkTo(&newModInfo)
 				if comparisonURL == "" {
 					logrus.Warnf("Unable to get comparison information for %s", mod.linkPrefix)
-					txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
+					txt += fmt.Sprintf("%s → %s", beforeVersion, afterVersion)
 				} else {
 					txt += fmt.Sprintf("[%s → %s](%s)",
-						mod.beforeVersion, mod.afterVersion, comparisonURL)
+						beforeVersion, afterVersion, comparisonURL)
 				}
 			} else {
-				txt += fmt.Sprintf("%s → %s", mod.beforeVersion, mod.afterVersion)
+				txt += fmt.Sprintf("%s → %s", beforeVersion, afterVersion)
 			}
 			changed = append(changed, txt)
 		}
@@ -579,7 +581,8 @@ func getModules(ctx context.Context, workDir string, indirect bool) (modules, er
 			name := strings.TrimSpace(split[0])
 			logrus.Debugf("Processing module %s", name)
 			linkPrefix := detectLinkPrefix(ctx, name, strings.TrimSpace(split[1]))
-			version := prettifyVersion(strings.TrimSpace(split[1]))
+			// Keep the full version, the proxy cannot resolve abbreviated hashes
+			version := strings.TrimSpace(split[1])
 
 			// Process the entry
 			entry := &entry{}

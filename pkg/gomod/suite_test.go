@@ -1,5 +1,6 @@
 package gomod_test
 
+//nolint:revive // test file
 import (
 	"testing"
 

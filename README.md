@@ -98,6 +98,26 @@ compared as well.
 The detection fails if the current directory is not part of a git repository or
 if that repository holds no `go.mod` file.
 
+### Go version changes
+
+Use `--include-go, -g` to add a `Go` section with the changes of the go version
+to the output:
+
+```markdown
+# Dependencies
+
+## Go
+
+- `go`: 1.25.0 → 1.26.0
+- `toolchain`: none → go1.26.1
+```
+
+By default, the versions come from the `go` and `toolchain` directives of the
+`go.mod` file of each revision. If the binaries are built with a toolchain
+other than the one in `go.mod`, use `--go-version-source installed`. The tool
+then runs `go version` in each revision and shows the toolchain that builds it.
+This includes the toolchain switching which `GOTOOLCHAIN` controls.
+
 ### Arguments
 
 The following command line arguments are currently supported:
@@ -112,6 +132,8 @@ The following command line arguments are currently supported:
 | `--header-level, -i`  | add a higher markdown header level depth (default: 1)                           |
 | `--include-indirect, -I` | include indirect imports (default: false)                                   |
 | `--include-empty, -e` | include empty added/changed/removed sections (default: false)                   |
+| `--include-go, -g`    | include changes of the go version (default: false)                              |
+| `--go-version-source` | where the go versions come from: `go.mod` or `installed` (default: "go.mod")    |
 | `--debug, -d`         | enable debug output (default: false)                                           |
 
 ## GitHub Action
@@ -164,6 +186,8 @@ workflow.
 | `header-level`        | `1`                | the markdown header level depth of the output                            |
 | `include-indirect`    | `false`            | include indirect imports                                                 |
 | `include-empty`       | `false`            | include empty added/changed/removed sections                             |
+| `include-go`          | `false`            | include changes of the go version                                        |
+| `go-version-source`   | `go.mod`           | where the go versions come from: `go.mod` or `installed`                 |
 | `debug`               | `false`            | enable debug output, also enabled by workflow debug logging              |
 | `fetch-history`       | `true`             | fetch the full history and all tags if the checkout lacks them            |
 | `output-file`         | below `RUNNER_TEMP` | file the markdown is written to                                         |

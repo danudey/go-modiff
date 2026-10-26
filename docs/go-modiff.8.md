@@ -9,9 +9,11 @@ go-modiff
 ```
 [--debug|-d]
 [--from|-f]=[value]
+[--go-version-source]=[value]
 [--header-level|-i]=[value]
 [--help|-h]
 [--include-empty|-e]
+[--include-go|-g]
 [--include-indirect|-I]
 [--link|-l]
 [--reference-clone]=[value]
@@ -32,11 +34,15 @@ Command line tool for diffing go module dependency changes between versions
 
 **--from, -f**="": the start of the comparison, any valid git rev (default: "master")
 
+**--go-version-source**="": where the go versions are taken from: 'go.mod' for its go and toolchain directives, 'installed' for the output of 'go version' within each revision (default: "go.mod")
+
 **--header-level, -i**="": add a higher markdown header level depth (default: 1)
 
 **--help, -h**: show help
 
 **--include-empty, -e**: include empty added/changed/removed sections
+
+**--include-go, -g**: include changes of the go version
 
 **--include-indirect, -I**: include indirect imports
 

@@ -8,14 +8,14 @@ import (
 	"strings"
 )
 
-func RunCmd(dir, cmd string, args ...string) error {
-	_, err := RunCmdOutput(dir, cmd, args...)
+func RunCmd(ctx context.Context, dir, cmd string, args ...string) error {
+	_, err := RunCmdOutput(ctx, dir, cmd, args...)
 
 	return err
 }
 
-func RunCmdOutput(dir, cmd string, args ...string) ([]byte, error) {
-	c := exec.CommandContext(context.Background(), cmd, args...)
+func RunCmdOutput(ctx context.Context, dir, cmd string, args ...string) ([]byte, error) {
+	c := exec.CommandContext(ctx, cmd, args...)
 	c.Stderr = nil
 	c.Dir = dir
 

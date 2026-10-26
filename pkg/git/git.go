@@ -2,6 +2,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -24,11 +25,11 @@ type Runner interface {
 type utilsRunner struct{}
 
 func (utilsRunner) RunCmd(dir, cmd string, args ...string) error {
-	return utils.RunCmd(dir, cmd, args...)
+	return utils.RunCmd(context.Background(), dir, cmd, args...)
 }
 
 func (utilsRunner) RunCmdOutput(dir, cmd string, args ...string) ([]byte, error) {
-	return utils.RunCmdOutput(dir, cmd, args...)
+	return utils.RunCmdOutput(context.Background(), dir, cmd, args...)
 }
 
 //nolint:gochecknoglobals // package-level runner is intentionally swappable for tests

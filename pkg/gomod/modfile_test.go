@@ -58,6 +58,47 @@ var _ = Describe("ModulePath", func() {
 	})
 })
 
+var _ = Describe("GoVersions", func() {
+	writeModFile := func(content string) string {
+		dir := GinkgoT().TempDir()
+		Expect(os.WriteFile(
+			filepath.Join(dir, gomod.ModFileName), []byte(content), 0o600,
+		)).To(Succeed())
+
+		return dir
+	}
+
+	It("returns the go and toolchain directives", func() {
+		dir := writeModFile("module github.com/owner/repo\n\ngo 1.25.0\n\ntoolchain go1.26.1\n")
+
+		goVersion, toolchain, err := gomod.GoVersions(dir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(goVersion).To(Equal("1.25.0"))
+		Expect(toolchain).To(Equal("go1.26.1"))
+	})
+
+	It("returns empty versions for missing directives", func() {
+		dir := writeModFile("module github.com/owner/repo\n")
+
+		goVersion, toolchain, err := gomod.GoVersions(dir)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(goVersion).To(BeEmpty())
+		Expect(toolchain).To(BeEmpty())
+	})
+
+	It("fails if the go.mod file is invalid", func() {
+		dir := writeModFile("module github.com/owner/repo\ngo not-a-version\n")
+
+		_, _, err := gomod.GoVersions(dir)
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("fails if there is no go.mod file", func() {
+		_, _, err := gomod.GoVersions(GinkgoT().TempDir())
+		Expect(err).To(HaveOccurred())
+	})
+})
+
 var _ = Describe("RepositoryPath", func() {
 	DescribeTable("strips the major version suffix",
 		func(input, expected string) {

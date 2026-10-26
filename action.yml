@@ -66,6 +66,16 @@ inputs:
     description: Include empty added/changed/removed sections.
     required: false
     default: 'false'
+  include-go:
+    description: Include changes of the go version.
+    required: false
+    default: 'false'
+  go-version-source:
+    description: >-
+      Where the go versions come from. `go.mod` uses the `go` and `toolchain`
+      directives, `installed` uses the output of `go version` in each revision.
+    required: false
+    default: go.mod
   debug:
     description: >-
       Enable debug output. Also enabled automatically when the workflow is run
@@ -226,13 +236,16 @@ runs:
         HEADER_LEVEL: ${{ inputs.header-level }}
         INCLUDE_INDIRECT: ${{ inputs.include-indirect }}
         INCLUDE_EMPTY: ${{ inputs.include-empty }}
+        INCLUDE_GO: ${{ inputs.include-go }}
+        GO_VERSION_SOURCE: ${{ inputs.go-version-source }}
         DEBUG: ${{ inputs.debug }}
         OUTPUT_FILE: ${{ inputs.output-file }}
         STEP_SUMMARY: ${{ inputs.step-summary }}
       run: |
         set -euo pipefail
 
-        args=(--from "$FROM" --to "$TO" --header-level "$HEADER_LEVEL")
+        args=(--from "$FROM" --to "$TO" --header-level "$HEADER_LEVEL"
+          --go-version-source "$GO_VERSION_SOURCE")
         if [[ -n "$REPOSITORY" ]]; then
           args+=(--repository "$REPOSITORY")
         fi
@@ -247,6 +260,9 @@ runs:
         fi
         if [[ "$INCLUDE_EMPTY" == "true" ]]; then
           args+=(--include-empty)
+        fi
+        if [[ "$INCLUDE_GO" == "true" ]]; then
+          args+=(--include-go)
         fi
         # RUNNER_DEBUG is set when the workflow is run with debug logging, so a
         # re-run with debug logging enabled turns on debug output here too

@@ -16,9 +16,11 @@ go-modiff
 .nf
 [--debug|-d]
 [--from|-f]=[value]
+[--go-version-source]=[value]
 [--header-level|-i]=[value]
 [--help|-h]
 [--include-empty|-e]
+[--include-go|-g]
 [--include-indirect|-I]
 [--link|-l]
 [--reference-clone]=[value]
@@ -50,6 +52,9 @@ Command line tool for diffing go module dependency changes between versions
 \fB--from, -f\fP="": the start of the comparison, any valid git rev (default: "master")
 
 .PP
+\fB--go-version-source\fP="": where the go versions are taken from: 'go.mod' for its go and toolchain directives, 'installed' for the output of 'go version' within each revision (default: "go.mod")
+
+.PP
 \fB--header-level, -i\fP="": add a higher markdown header level depth (default: 1)
 
 .PP
@@ -57,6 +62,9 @@ Command line tool for diffing go module dependency changes between versions
 
 .PP
 \fB--include-empty, -e\fP: include empty added/changed/removed sections
+
+.PP
+\fB--include-go, -g\fP: include changes of the go version
 
 .PP
 \fB--include-indirect, -I\fP: include indirect imports

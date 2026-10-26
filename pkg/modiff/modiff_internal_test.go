@@ -3,6 +3,7 @@ package modiff
 
 //nolint:revive // test file
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +28,7 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		defer server.Close()
 
 		t.Setenv("GOPROXY", server.URL)
-		info, err := getGoProxyModInfo(module, version)
+		info, err := getGoProxyModInfo(context.Background(), module, version)
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(info.Version).To(Equal("v1.2.3"))
 		g.Expect(info.Origin.URL).To(Equal("https://github.com/example/repo"))
@@ -43,7 +44,7 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		defer server.Close()
 
 		t.Setenv("GOPROXY", server.URL)
-		_, err := getGoProxyModInfo(module, version)
+		_, err := getGoProxyModInfo(context.Background(), module, version)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("does not exist"))
 	})
@@ -56,7 +57,7 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		defer server.Close()
 
 		t.Setenv("GOPROXY", server.URL)
-		_, err := getGoProxyModInfo(module, version)
+		_, err := getGoProxyModInfo(context.Background(), module, version)
 		g.Expect(err).To(HaveOccurred())
 	})
 
@@ -69,19 +70,21 @@ func TestGetGoProxyModInfo(t *testing.T) {
 		defer server.Close()
 
 		t.Setenv("GOPROXY", server.URL)
-		info, err := getGoProxyModInfo("github.com/DeRuina/timberjack", "v1.3.9")
+		info, err := getGoProxyModInfo(context.Background(), "github.com/DeRuina/timberjack", "v1.3.9")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(info.Version).To(Equal("v1.3.9"))
 	})
 }
 
 func TestGoProxyServer(t *testing.T) {
+	const exampleProxy = "https://example.com"
+
 	for _, tc := range []struct {
 		name, goproxy, expected string
 	}{
 		{"empty", "", defaultGoProxy},
-		{"single proxy", "https://example.com", "https://example.com"},
-		{"trailing slash", "https://example.com/", "https://example.com"},
+		{"single proxy", exampleProxy, exampleProxy},
+		{"trailing slash", exampleProxy + "/", exampleProxy},
 		{"comma list", "https://a.example.com,https://b.example.com,direct", "https://a.example.com"},
 		{"pipe list", "https://a.example.com|direct", "https://a.example.com"},
 		{"skips keywords", "direct,https://b.example.com", "https://b.example.com"},
@@ -102,14 +105,14 @@ func TestDiffModulesNoChanges(t *testing.T) {
 	t.Run("prints a message instead of a lone header", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		g.Expect(diffModules(modules{}, nil, false, false, false, 1)).
+		g.Expect(diffModules(context.Background(), modules{}, nil, false, false, false, 1)).
 			To(Equal("_No dependency changes._\n"))
 	})
 
 	t.Run("keeps the empty sections when requested", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(modules{}, nil, false, false, true, 1)
+		res := diffModules(context.Background(), modules{}, nil, false, false, true, 1)
 		g.Expect(res).To(HavePrefix("# Dependencies\n"))
 		g.Expect(res).To(ContainSubstring("## Added"))
 		g.Expect(res).To(ContainSubstring("## Changed"))
@@ -123,21 +126,21 @@ func TestDiffModulesGoSection(t *testing.T) {
 	t.Run("prints the go changes first", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(modules{}, []string{"- `go`: 1.25 → 1.26"}, true, false, false, 1)
+		res := diffModules(context.Background(), modules{}, []string{"- `go`: 1.25 → 1.26"}, true, false, false, 1)
 		g.Expect(res).To(Equal("# Dependencies\n\n## Go\n- `go`: 1.25 → 1.26\n"))
 	})
 
 	t.Run("keeps the empty go section when requested", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(modules{}, nil, true, false, true, 1)
+		res := diffModules(context.Background(), modules{}, nil, true, false, true, 1)
 		g.Expect(res).To(HavePrefix("# Dependencies\n\n## Go\n_Nothing has changed._\n"))
 	})
 
 	t.Run("omits the go section if not included", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(modules{}, nil, false, false, true, 1)
+		res := diffModules(context.Background(), modules{}, nil, false, false, true, 1)
 		g.Expect(res).ToNot(ContainSubstring("## Go"))
 	})
 }

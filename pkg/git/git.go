@@ -25,11 +25,20 @@ type Runner interface {
 type utilsRunner struct{}
 
 func (utilsRunner) RunCmd(dir, cmd string, args ...string) error {
-	return utils.RunCmd(context.Background(), dir, cmd, args...)
+	if err := utils.RunCmd(context.Background(), dir, cmd, args...); err != nil {
+		return fmt.Errorf("unable to run %s: %w", cmd, err)
+	}
+
+	return nil
 }
 
 func (utilsRunner) RunCmdOutput(dir, cmd string, args ...string) ([]byte, error) {
-	return utils.RunCmdOutput(context.Background(), dir, cmd, args...)
+	output, err := utils.RunCmdOutput(context.Background(), dir, cmd, args...)
+	if err != nil {
+		return nil, fmt.Errorf("unable to run %s: %w", cmd, err)
+	}
+
+	return output, nil
 }
 
 //nolint:gochecknoglobals // package-level runner is intentionally swappable for tests
@@ -130,7 +139,11 @@ func RemoveWorktree(repoDir, destDir string) {
 func Run(dir string, args ...string) error {
 	logrus.Debugf("Running command in %s: git %s", dir, strings.Join(args, " "))
 
-	return cmdRunner.RunCmd(dir, "git", args...)
+	if err := cmdRunner.RunCmd(dir, "git", args...); err != nil {
+		return fmt.Errorf("unable to execute git command: %w", err)
+	}
+
+	return nil
 }
 
 // RunOutput runs a git command with the specified arguments and returns the utf-8 output

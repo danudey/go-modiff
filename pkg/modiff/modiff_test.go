@@ -288,7 +288,7 @@ func TestCheckURLValid(t *testing.T) {
 			if tt.client == nil {
 				tt.client = &http.Client{}
 			}
-			valid, err := modiff.CheckURLValid(*tt.client, tt.url)
+			valid, err := modiff.CheckURLValid(context.Background(), *tt.client, tt.url)
 			g.Expect(valid).To(Equal(tt.expected))
 			if tt.err != nil {
 				g.Expect(err).To(HaveOccurred())

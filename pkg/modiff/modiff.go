@@ -237,7 +237,7 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		}
 	}
 
-	return diffModules(mods, goChanges, cfg.includeGo, cfg.link, cfg.empty, cfg.headerLevel), nil
+	return diffModules(ctx, mods, goChanges, cfg.includeGo, cfg.link, cfg.empty, cfg.headerLevel), nil
 }
 
 func toURL(name string) string {
@@ -264,7 +264,7 @@ func goProxyServer() string {
 	return defaultGoProxy
 }
 
-func getGoProxyModInfo(mod, version string) (gomod.Info, error) {
+func getGoProxyModInfo(ctx context.Context, mod, version string) (gomod.Info, error) {
 	modInfo := gomod.Info{}
 
 	// The proxy protocol requires uppercase letters to be escaped as `!` + lowercase
@@ -279,7 +279,11 @@ func getGoProxyModInfo(mod, version string) (gomod.Info, error) {
 
 	goModInfoURL := fmt.Sprintf("%s/%s/@v/%s.info", goProxyServer(), escapedMod, escapedVersion)
 	logrus.Debugf("Fetching go mod info for %s from %s", mod, goModInfoURL)
-	resp, err := http.Get(goModInfoURL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, goModInfoURL, http.NoBody)
+	if err != nil {
+		return modInfo, fmt.Errorf("could not create request for golang module proxy: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return modInfo, fmt.Errorf("could not get go module info from golang module proxy: %w", err)
 	}
@@ -301,12 +305,15 @@ func getGoProxyModInfo(mod, version string) (gomod.Info, error) {
 	return modInfo, nil
 }
 
-func diffModules(mods modules, goChanges []string, includeGo, addLinks, empty bool, headerLevel uint) string {
+func diffModules(
+	ctx context.Context, mods modules, goChanges []string,
+	includeGo, addLinks, empty bool, headerLevel uint,
+) string {
 	var added, removed, changed []string
 	for name, mod := range mods {
 		var txt string
-		oldModInfo := fetchModInfo(&mod, mod.beforeVersion)
-		newModInfo := fetchModInfo(&mod, mod.afterVersion)
+		oldModInfo := fetchModInfo(ctx, &mod, mod.beforeVersion)
+		newModInfo := fetchModInfo(ctx, &mod, mod.afterVersion)
 
 		var modURL string
 		if oldModInfo.Origin.URL != "" {
@@ -316,9 +323,9 @@ func diffModules(mods modules, goChanges []string, includeGo, addLinks, empty bo
 		}
 
 		if modURL != "" && addLinks {
-			txt = fmt.Sprintf("- [`%s`](%s): ", name, modURL)
+			txt = fmt.Sprintf("- [%#q](%s): ", name, modURL)
 		} else {
-			txt = fmt.Sprintf("- `%s`: ", name)
+			txt = fmt.Sprintf("- %#q: ", name)
 		}
 
 		if mod.beforeVersion == "" { //nolint: gocritic
@@ -366,12 +373,12 @@ func diffModules(mods modules, goChanges []string, includeGo, addLinks, empty bo
 
 // fetchModInfo retrieves the proxy information of the provided module version.
 // It returns empty information if the version is empty or the lookup fails.
-func fetchModInfo(mod *entry, version string) gomod.Info {
+func fetchModInfo(ctx context.Context, mod *entry, version string) gomod.Info {
 	if version == "" {
 		return gomod.Info{}
 	}
 
-	info, err := getGoProxyModInfo(mod.name, version)
+	info, err := getGoProxyModInfo(ctx, mod.name, version)
 	if err != nil {
 		logrus.WithError(err).Errorf("could not fetch module info for %s@%s", mod.linkPrefix, version)
 	}
@@ -570,38 +577,9 @@ func getModules(ctx context.Context, workDir string, indirect bool) (modules, er
 			}
 
 			name := strings.TrimSpace(split[0])
-			linkPrefix := name
 			logrus.Debugf("Processing module %s", name)
-			// Remove the module name from the link
-			if splitLink := strings.Split(linkPrefix, "/"); len(splitLink) == 4 {
-				// Check if the last part of string is part of the tag.
-				linkPrefixTree := strings.Join(slices.Insert(splitLink, 3, "tree"), "/")
-				url := fmt.Sprintf("https://%s%s%s", linkPrefixTree, "/", strings.TrimSpace(split[1]))
-				logrus.Debugf("  Module %s has an extra segment '%s'", name, splitLink[3])
-				logrus.Debugf("    Checking if it's part of the repo URL by fetching %s", url)
-				// If the url is valid, then we keep the linkPrefix as is
-				client := http.Client{}
-				if valid, err := CheckURLValid(client, url); !valid && err == nil {
-					linkPrefix = strings.Join(splitLink[:3], "/")
-					logrus.Debugf("    It's not; using %s as link prefix", linkPrefix)
-				} else {
-					logrus.Debugf("    It is; using %s as link prefix", linkPrefix)
-				}
-			}
-			version := strings.TrimSpace(split[1])
-
-			// Prettify pseudo versions
-			vSplit := strings.Split(version, "-")
-			if len(vSplit) > 2 {
-				v := vSplit[len(vSplit)-1]
-				if len(v) > 7 {
-					version = v[:7]
-				} else {
-					// This should never happen but who knows what go modules
-					// will do next
-					version = v
-				}
-			}
+			linkPrefix := detectLinkPrefix(ctx, name, strings.TrimSpace(split[1]))
+			version := prettifyVersion(strings.TrimSpace(split[1]))
 
 			// Process the entry
 			entry := &entry{}
@@ -622,9 +600,52 @@ func getModules(ctx context.Context, workDir string, indirect bool) (modules, er
 	return res, nil
 }
 
+// detectLinkPrefix returns the repository part of the module name, which is
+// used to build links. Module names with an extra segment, like
+// `github.com/owner/repo/sub`, are checked against the repository host to find
+// out whether the segment is part of the repository URL.
+func detectLinkPrefix(ctx context.Context, name, version string) string {
+	splitLink := strings.Split(name, "/")
+	if len(splitLink) != 4 {
+		return name
+	}
+
+	// Check if the last part of string is part of the tag.
+	linkPrefixTree := strings.Join(slices.Insert(splitLink, 3, "tree"), "/")
+	url := fmt.Sprintf("https://%s%s%s", linkPrefixTree, "/", version)
+	logrus.Debugf("  Module %s has an extra segment '%s'", name, splitLink[3])
+	logrus.Debugf("    Checking if it's part of the repo URL by fetching %s", url)
+	// If the url is valid, then we keep the name as is
+	client := http.Client{}
+	if valid, err := CheckURLValid(ctx, client, url); !valid && err == nil {
+		linkPrefix := strings.Join(splitLink[:3], "/")
+		logrus.Debugf("    It's not; using %s as link prefix", linkPrefix)
+
+		return linkPrefix
+	}
+	logrus.Debugf("    It is; using %s as link prefix", name)
+
+	return name
+}
+
+// prettifyVersion shortens pseudo versions to the abbreviated commit hash
+func prettifyVersion(version string) string {
+	vSplit := strings.Split(version, "-")
+	if len(vSplit) <= 2 {
+		return version
+	}
+
+	v := vSplit[len(vSplit)-1]
+	if len(v) > 7 {
+		return v[:7]
+	}
+
+	// This should never happen but who knows what go modules will do next
+	return v
+}
+
 // CheckURLValid validates that a URL exists by making an HTTP HEAD request to it
-func CheckURLValid(client http.Client, url string) (bool, error) {
-	ctx := context.Background()
+func CheckURLValid(ctx context.Context, client http.Client, url string) (bool, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodHead, url, http.NoBody)
 	if err != nil {
 		return false, fmt.Errorf("error while creating request: %w", err)
@@ -653,7 +674,7 @@ func retrieveModules(ctx context.Context, workDir string, indirect bool) (string
 	if err != nil {
 		logrus.Error(err)
 
-		return "", err
+		return "", fmt.Errorf("unable to list go modules: %w", err)
 	}
 
 	return strings.TrimSpace(string(mods)), nil

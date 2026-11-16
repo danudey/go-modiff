@@ -200,6 +200,9 @@ func TestRenderMarkdownTable(t *testing.T) {
 		afterURL:  "https://github.com/foo/changed/commit/b",
 		// Pipes have to be escaped, even within links
 		compareURL: "https://github.com/foo/changed/compare/a...b|c",
+	}, {
+		// Rows without a comparison leave the diff cell empty
+		name: "github.com/foo/nocompare", before: "v0.1.0", after: "v0.2.0",
 	}}
 	removed := []change{{name: "github.com/foo/removed", before: "v2.0.0"}}
 	goChanges := []change{{name: "go", before: goVersion125, after: goVersion126}}
@@ -220,32 +223,48 @@ func TestRenderMarkdownTable(t *testing.T) {
 
 ### Added
 
-| Module | Old version | New version |
-| --- | --- | --- |
-| ` + "`github.com/foo/added`" + ` |  | v1.0.0 |
+| Module | Version |
+| --- | --- |
+| ` + "`github.com/foo/added`" + ` | v1.0.0 |
 
 ### Changed
 
-| Module | Old version | New version |
-| --- | --- | --- |
+| Module | Old version | New version | Diff |
+| --- | --- | --- | --- |
 | [` + "`github.com/foo/changed`" + `](https://github.com/foo/changed) | ` +
 			`[v1.0.0](https://github.com/foo/changed/commit/a) | ` +
-			`[v1.1.0](https://github.com/foo/changed/compare/a...b\|c) |
+			`[v1.1.0](https://github.com/foo/changed/commit/b) | ` +
+			`[diff](https://github.com/foo/changed/compare/a...b\|c) |
+| ` + "`github.com/foo/nocompare`" + ` | v0.1.0 | v0.2.0 |  |
 
 ### Removed
 
-| Module | Old version | New version |
-| --- | --- | --- |
-| ` + "`github.com/foo/removed`" + ` | v2.0.0 |  |
+| Module | Version |
+| --- | --- |
+| ` + "`github.com/foo/removed`" + ` | v2.0.0 |
 `))
 	})
 
-	t.Run("links the new version to its commit without a comparison", func(t *testing.T) {
+	t.Run("omits the diff column without any comparison", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		res := renderMarkdown(nil, nil, changed[1:], nil, renderOptions{table: true, headerLevel: 1})
+		g.Expect(res).To(ContainSubstring("| Module | Old version | New version |\n| --- | --- | --- |\n"))
+		g.Expect(res).ToNot(ContainSubstring("Diff"))
+	})
+
+	t.Run("shows only the relevant version columns", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
 		c := changed[0]
-		c.compareURL = ""
-		g.Expect(c.tableRow()).To(HaveSuffix("| [v1.1.0](https://github.com/foo/changed/commit/b) |"))
+		g.Expect(c.tableRow(oldVersion, false)).To(Equal(
+			"| [`github.com/foo/changed`](https://github.com/foo/changed) | " +
+				"[v1.0.0](https://github.com/foo/changed/commit/a) |",
+		))
+		g.Expect(c.tableRow(newVersion, false)).To(Equal(
+			"| [`github.com/foo/changed`](https://github.com/foo/changed) | " +
+				"[v1.1.0](https://github.com/foo/changed/commit/b) |",
+		))
 	})
 
 	t.Run("keeps the empty section message", func(t *testing.T) {

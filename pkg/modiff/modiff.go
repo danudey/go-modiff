@@ -454,20 +454,65 @@ func (c *change) listItem() string {
 	return txt
 }
 
-// tableRow renders the change as a GitHub flavored markdown table row. The new
-// version links to the comparison of both versions if there is one, and to its
-// commit otherwise.
-func (c *change) tableRow() string {
-	afterURL := c.afterURL
-	if c.compareURL != "" {
-		afterURL = c.compareURL
+// versionColumns selects which version columns a table shows
+type versionColumns int
+
+const (
+	// bothVersions shows the old and the new version
+	bothVersions versionColumns = iota
+	// oldVersion shows only the old version, for removed modules
+	oldVersion
+	// newVersion shows only the new version, for added modules
+	newVersion
+)
+
+// tableHeader renders the header and delimiter rows of a table. The diff column
+// is only included if diff is set.
+func (v versionColumns) tableHeader(nameHeader string, diff bool) string {
+	headers := []string{nameHeader}
+	switch v {
+	case oldVersion, newVersion:
+		headers = append(headers, "Version")
+	case bothVersions:
+		headers = append(headers, "Old version", "New version")
+	}
+	if diff {
+		headers = append(headers, "Diff")
 	}
 
-	return fmt.Sprintf("| %s | %s | %s |",
-		escapeTableCell(markdownLink(fmt.Sprintf("%#q", c.name), c.url)),
-		escapeTableCell(markdownLink(c.before, c.beforeURL)),
-		escapeTableCell(markdownLink(c.after, afterURL)),
-	)
+	return "| " + strings.Join(headers, " | ") + " |\n" +
+		strings.Repeat("| --- ", len(headers)) + "|\n"
+}
+
+// hasCompareURL returns true if any of the changes links to a comparison
+func hasCompareURL(changes []change) bool {
+	return slices.ContainsFunc(changes, func(c change) bool { return c.compareURL != "" })
+}
+
+// tableRow renders the change as a GitHub flavored markdown table row with the
+// provided version columns. Each version links to its commit. If diff is set,
+// a final column links to the comparison of both versions, which stays empty
+// if there is none.
+func (c *change) tableRow(columns versionColumns, diff bool) string {
+	cells := []string{markdownLink(fmt.Sprintf("%#q", c.name), c.url)}
+	if columns != newVersion {
+		cells = append(cells, markdownLink(c.before, c.beforeURL))
+	}
+	if columns != oldVersion {
+		cells = append(cells, markdownLink(c.after, c.afterURL))
+	}
+	if diff {
+		diffCell := ""
+		if c.compareURL != "" {
+			diffCell = markdownLink("diff", c.compareURL)
+		}
+		cells = append(cells, diffCell)
+	}
+	for i := range cells {
+		cells[i] = escapeTableCell(cells[i])
+	}
+
+	return "| " + strings.Join(cells, " | ") + " |"
 }
 
 // escapeTableCell escapes pipes, which would otherwise end the table cell.
@@ -488,7 +533,7 @@ func renderMarkdown(goChanges, added, changed, removed []change, opts renderOpti
 	fmt.Fprintf(
 		builder, "%s Dependencies\n", strings.Repeat("#", int(opts.headerLevel)),
 	)
-	forEach := func(section, nameHeader string, input []change) {
+	forEach := func(section, nameHeader string, columns versionColumns, input []change) {
 		if len(input) == 0 && !opts.empty {
 			return
 		}
@@ -502,10 +547,12 @@ func renderMarkdown(goChanges, added, changed, removed []change, opts renderOpti
 			return
 		}
 		if opts.table {
-			fmt.Fprintf(builder, "\n| %s | Old version | New version |\n", nameHeader)
-			builder.WriteString("| --- | --- | --- |\n")
+			// Only show the diff column if there is something to link to
+			diff := hasCompareURL(input)
+			builder.WriteString("\n")
+			builder.WriteString(columns.tableHeader(nameHeader, diff))
 			for i := range input {
-				fmt.Fprintf(builder, "%s\n", input[i].tableRow())
+				fmt.Fprintf(builder, "%s\n", input[i].tableRow(columns, diff))
 			}
 
 			return
@@ -515,11 +562,13 @@ func renderMarkdown(goChanges, added, changed, removed []change, opts renderOpti
 		}
 	}
 	if opts.includeGo {
-		forEach("Go", "Name", goChanges)
+		// Go versions can be added or removed alongside changes, missing ones
+		// are shown as `none`, so both columns are always relevant
+		forEach("Go", "Name", bothVersions, goChanges)
 	}
-	forEach("Added", "Module", added)
-	forEach("Changed", "Module", changed)
-	forEach("Removed", "Module", removed)
+	forEach("Added", "Module", newVersion, added)
+	forEach("Changed", "Module", bothVersions, changed)
+	forEach("Removed", "Module", oldVersion, removed)
 
 	return builder.String()
 }

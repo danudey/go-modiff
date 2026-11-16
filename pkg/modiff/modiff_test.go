@@ -28,6 +28,9 @@ var expectedIndirect string
 //go:embed expectedWithLinks.txt
 var expectedWithLinks string
 
+//go:embed expectedTable.txt
+var expectedTable string
+
 // The actual test suite
 var _ = t.Describe("Run", func() {
 	const (
@@ -55,7 +58,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -67,7 +70,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed with indirect mods", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, false, true, true, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, true, true, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -79,7 +82,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should succeed with links", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, true, true, true, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, true, true, true, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -89,10 +92,22 @@ var _ = t.Describe("Run", func() {
 		Expect(res).To(Equal(expectedWithLinks))
 	})
 
+	It("should succeed with tables", func() {
+		// Given
+		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, false, true, "", 1)
+
+		// When
+		res, err := modiff.Run(context.Background(), config)
+
+		// Then
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res).To(Equal(expectedTable))
+	})
+
 	It("should succeed with the go version from go.mod", func() {
 		// Given
 		config := modiff.NewConfig(
-			repo, topLevel, from, to, false, false, true, true, modiff.GoVersionSourceModFile, 1,
+			repo, topLevel, from, to, false, false, true, true, false, modiff.GoVersionSourceModFile, 1,
 		)
 
 		// When
@@ -108,7 +123,7 @@ var _ = t.Describe("Run", func() {
 	It("should succeed with the installed go version", func() {
 		// Given: both revisions are built by the installed toolchain
 		config := modiff.NewConfig(
-			repo, topLevel, from, to, false, false, true, true, modiff.GoVersionSourceInstalled, 1,
+			repo, topLevel, from, to, false, false, true, true, false, modiff.GoVersionSourceInstalled, 1,
 		)
 
 		// When
@@ -123,7 +138,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail with an unknown go version source", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, true, "invalid", 1)
+		config := modiff.NewConfig(repo, topLevel, from, to, false, false, true, true, false, "invalid", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -145,7 +160,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should detect the local repository if 'repository' not given", func() {
 		// Given
-		config := modiff.NewConfig("", "", from, to, false, false, true, false, "", 1)
+		config := modiff.NewConfig("", "", from, to, false, false, true, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -157,7 +172,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if 'from' equals 'to'", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, "", "", true, false, false, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, "", "", true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -169,7 +184,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if repository is not clone-able", func() {
 		// Given
-		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, false, false, "", 1)
+		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -181,7 +196,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if the specified reference repository does not exist", func() {
 		// Given
-		config := modiff.NewConfig("", "invalid", from, "", true, false, false, false, "", 1)
+		config := modiff.NewConfig("", "invalid", from, "", true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -193,7 +208,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if the repository url is invalid", func() {
 		// Given: no reference clone, so Run() will attempt to clone the bad repo
-		config := modiff.NewConfig(badRepo, "", from, to, true, false, false, false, "", 1)
+		config := modiff.NewConfig(badRepo, "", from, to, true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)

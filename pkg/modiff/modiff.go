@@ -67,6 +67,7 @@ type Config struct {
 	indirect       bool
 	empty          bool
 	includeGo      bool
+	table          bool
 	goSource       GoVersionSource
 	headerLevel    uint
 }
@@ -74,7 +75,7 @@ type Config struct {
 // NewConfig creates a new configuration
 func NewConfig(
 	repository, referenceClone, from, to string,
-	link, includeIndirect, includeEmpty, includeGo bool,
+	link, includeIndirect, includeEmpty, includeGo, table bool,
 	goSource GoVersionSource,
 	headerLevel uint,
 ) *Config {
@@ -94,7 +95,7 @@ func NewConfig(
 
 	return &Config{
 		repository, referenceClone, from, to,
-		link, includeIndirect, includeEmpty, includeGo,
+		link, includeIndirect, includeEmpty, includeGo, table,
 		goSource, headerLevel,
 	}
 }
@@ -229,7 +230,7 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		return "", err
 	}
 
-	var goChanges []string
+	var goChanges []change
 	if cfg.includeGo {
 		goChanges, err = getGoChanges(ctx, dir, cfg.goSource)
 		if err != nil {
@@ -237,7 +238,12 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		}
 	}
 
-	return diffModules(ctx, mods, goChanges, cfg.includeGo, cfg.link, cfg.empty, cfg.headerLevel), nil
+	return diffModules(ctx, mods, goChanges, cfg.link, renderOptions{
+		includeGo:   cfg.includeGo,
+		empty:       cfg.empty,
+		table:       cfg.table,
+		headerLevel: cfg.headerLevel,
+	}), nil
 }
 
 func toURL(name string) string {
@@ -305,72 +311,80 @@ func getGoProxyModInfo(ctx context.Context, mod, version string) (gomod.Info, er
 	return modInfo, nil
 }
 
-func diffModules(
-	ctx context.Context, mods modules, goChanges []string,
-	includeGo, addLinks, empty bool, headerLevel uint,
-) string {
-	var added, removed, changed []string
+// change is a single dependency or go version which differs between both
+// revisions. An empty version means that it does not exist in that revision.
+type change struct {
+	name   string
+	before string
+	after  string
+
+	// Optional links, only set if links have been requested
+	url        string
+	beforeURL  string
+	afterURL   string
+	compareURL string
+}
+
+// renderOptions controls the markdown output
+type renderOptions struct {
+	includeGo   bool
+	empty       bool
+	table       bool
+	headerLevel uint
+}
+
+func diffModules(ctx context.Context, mods modules, goChanges []change, addLinks bool, opts renderOptions) string {
+	var added, removed, changed []change
 	for name, mod := range mods {
-		var txt string
+		if mod.beforeVersion == mod.afterVersion {
+			continue
+		}
+
 		oldModInfo := fetchModInfo(ctx, &mod, mod.beforeVersion)
 		newModInfo := fetchModInfo(ctx, &mod, mod.afterVersion)
-		beforeVersion := prettifyVersion(mod.beforeVersion)
-		afterVersion := prettifyVersion(mod.afterVersion)
-
-		var modURL string
-		if oldModInfo.Origin.URL != "" {
-			modURL = oldModInfo.Origin.URL
-		} else if newModInfo.Origin.URL != "" {
-			modURL = newModInfo.Origin.URL
+		c := change{
+			name:   name,
+			before: prettifyVersion(mod.beforeVersion),
+			after:  prettifyVersion(mod.afterVersion),
 		}
 
-		if modURL != "" && addLinks {
-			txt = fmt.Sprintf("- [%#q](%s): ", name, modURL)
-		} else {
-			txt = fmt.Sprintf("- %#q: ", name)
-		}
-
-		if mod.beforeVersion == "" { //nolint: gocritic
-			if addLinks && newModInfo.IsGitHostWeKnow() {
-				// Insert the tree part of the URL at index 3 to account for tag names with slashes
-				txt += fmt.Sprintf("[%s](%s)",
-					afterVersion, newModInfo.CommitLink())
+		if addLinks {
+			if oldModInfo.Origin.URL != "" {
+				c.url = oldModInfo.Origin.URL
 			} else {
-				txt += afterVersion
+				c.url = newModInfo.Origin.URL
 			}
-			added = append(added, txt)
-		} else if mod.afterVersion == "" {
-			if addLinks && oldModInfo.IsGitHostWeKnow() {
-				txt += fmt.Sprintf("[%s](%s)",
-					beforeVersion, oldModInfo.CommitLink())
-			} else {
-				txt += beforeVersion
+			if mod.beforeVersion != "" && oldModInfo.IsGitHostWeKnow() {
+				c.beforeURL = oldModInfo.CommitLink()
 			}
-			removed = append(removed, txt)
-		} else if mod.beforeVersion != mod.afterVersion {
-			if addLinks && oldModInfo.IsGitHostWeKnow() {
-				comparisonURL := oldModInfo.CompareLinkTo(&newModInfo)
-				if comparisonURL == "" {
+			if mod.afterVersion != "" && newModInfo.IsGitHostWeKnow() {
+				c.afterURL = newModInfo.CommitLink()
+			}
+			if mod.beforeVersion != "" && mod.afterVersion != "" && oldModInfo.IsGitHostWeKnow() {
+				c.compareURL = oldModInfo.CompareLinkTo(&newModInfo)
+				if c.compareURL == "" {
 					logrus.Warnf("Unable to get comparison information for %s", mod.linkPrefix)
-					txt += fmt.Sprintf("%s → %s", beforeVersion, afterVersion)
-				} else {
-					txt += fmt.Sprintf("[%s → %s](%s)",
-						beforeVersion, afterVersion, comparisonURL)
 				}
-			} else {
-				txt += fmt.Sprintf("%s → %s", beforeVersion, afterVersion)
 			}
-			changed = append(changed, txt)
+		}
+
+		switch {
+		case mod.beforeVersion == "":
+			added = append(added, c)
+		case mod.afterVersion == "":
+			removed = append(removed, c)
+		default:
+			changed = append(changed, c)
 		}
 	}
-	sort.Strings(added)
-	sort.Strings(changed)
-	sort.Strings(removed)
+	for _, list := range [][]change{added, changed, removed} {
+		sort.Slice(list, func(i, j int) bool { return list[i].name < list[j].name })
+	}
 	logrus.Infof("%d modules added", len(added))
 	logrus.Infof("%d modules changed", len(changed))
 	logrus.Infof("%d modules removed", len(removed))
 
-	return renderMarkdown(goChanges, added, changed, removed, includeGo, empty, headerLevel)
+	return renderMarkdown(goChanges, added, changed, removed, opts)
 }
 
 // fetchModInfo retrieves the proxy information of the provided module version.
@@ -388,46 +402,101 @@ func fetchModInfo(ctx context.Context, mod *entry, version string) gomod.Info {
 	return info
 }
 
-func renderMarkdown(goChanges, added, changed, removed []string, includeGo, empty bool, headerLevel uint) string {
+// markdownLink returns text as a markdown link to url, or text alone if url is empty
+func markdownLink(text, url string) string {
+	if url == "" {
+		return text
+	}
+
+	return fmt.Sprintf("[%s](%s)", text, url)
+}
+
+// listItem renders the change as a markdown list item
+func (c *change) listItem() string {
+	txt := fmt.Sprintf("- %s: ", markdownLink(fmt.Sprintf("%#q", c.name), c.url))
+	switch {
+	case c.before == "":
+		txt += markdownLink(c.after, c.afterURL)
+	case c.after == "":
+		txt += markdownLink(c.before, c.beforeURL)
+	default:
+		txt += markdownLink(fmt.Sprintf("%s → %s", c.before, c.after), c.compareURL)
+	}
+
+	return txt
+}
+
+// tableRow renders the change as a GitHub flavored markdown table row. The new
+// version links to the comparison of both versions if there is one, and to its
+// commit otherwise.
+func (c *change) tableRow() string {
+	afterURL := c.afterURL
+	if c.compareURL != "" {
+		afterURL = c.compareURL
+	}
+
+	return fmt.Sprintf("| %s | %s | %s |",
+		escapeTableCell(markdownLink(fmt.Sprintf("%#q", c.name), c.url)),
+		escapeTableCell(markdownLink(c.before, c.beforeURL)),
+		escapeTableCell(markdownLink(c.after, afterURL)),
+	)
+}
+
+// escapeTableCell escapes pipes, which would otherwise end the table cell.
+// GitHub flavored markdown also honors the escape within code spans and links.
+func escapeTableCell(cell string) string {
+	return strings.ReplaceAll(cell, "|", `\|`)
+}
+
+func renderMarkdown(goChanges, added, changed, removed []change, opts renderOptions) string {
 	// Without the empty sections there would be nothing but a lone header, so
 	// state explicitly that nothing changed instead.
-	if !empty && len(goChanges) == 0 && len(added) == 0 && len(changed) == 0 && len(removed) == 0 {
+	if !opts.empty && len(goChanges) == 0 && len(added) == 0 && len(changed) == 0 && len(removed) == 0 {
 		return "_No dependency changes._\n"
 	}
 
 	// Pretty print
 	builder := &strings.Builder{}
 	fmt.Fprintf(
-		builder, "%s Dependencies\n", strings.Repeat("#", int(headerLevel)),
+		builder, "%s Dependencies\n", strings.Repeat("#", int(opts.headerLevel)),
 	)
-	forEach := func(section string, input []string) {
-		if len(input) > 0 {
-			fmt.Fprintf(
-				builder,
-				"\n%s %s\n", strings.Repeat("#", int(headerLevel)+1), section,
-			)
-			for _, mod := range input {
-				fmt.Fprintf(builder, "%s\n", mod)
-			}
-		} else if empty {
-			fmt.Fprintf(
-				builder,
-				"\n%s %s\n", strings.Repeat("#", int(headerLevel)+1), section,
-			)
+	forEach := func(section, nameHeader string, input []change) {
+		if len(input) == 0 && !opts.empty {
+			return
+		}
+		fmt.Fprintf(
+			builder,
+			"\n%s %s\n", strings.Repeat("#", int(opts.headerLevel)+1), section,
+		)
+		if len(input) == 0 {
 			builder.WriteString("_Nothing has changed._\n")
+
+			return
+		}
+		if opts.table {
+			fmt.Fprintf(builder, "\n| %s | Old version | New version |\n", nameHeader)
+			builder.WriteString("| --- | --- | --- |\n")
+			for i := range input {
+				fmt.Fprintf(builder, "%s\n", input[i].tableRow())
+			}
+
+			return
+		}
+		for i := range input {
+			fmt.Fprintf(builder, "%s\n", input[i].listItem())
 		}
 	}
-	if includeGo {
-		forEach("Go", goChanges)
+	if opts.includeGo {
+		forEach("Go", "Name", goChanges)
 	}
-	forEach("Added", added)
-	forEach("Changed", changed)
-	forEach("Removed", removed)
+	forEach("Added", "Module", added)
+	forEach("Changed", "Module", changed)
+	forEach("Removed", "Module", removed)
 
 	return builder.String()
 }
 
-func getGoChanges(ctx context.Context, workDir string, source GoVersionSource) ([]string, error) {
+func getGoChanges(ctx context.Context, workDir string, source GoVersionSource) ([]change, error) {
 	logrus.Infof("Retrieving go versions from %s", source)
 	before, err := retrieveGoVersions(ctx, filepath.Join(workDir, "from"), source)
 	if err != nil {
@@ -444,9 +513,10 @@ func getGoChanges(ctx context.Context, workDir string, source GoVersionSource) (
 	return changes, nil
 }
 
-// diffGoVersions returns a markdown list entry for every go version which
-// differs between both revisions, in the order they appear in
-func diffGoVersions(before, after []goVersion) []string {
+// diffGoVersions returns a change for every go version which differs between
+// both revisions, in the order they appear in. Missing versions are shown as
+// `none`.
+func diffGoVersions(before, after []goVersion) []change {
 	var names []string
 	beforeVersions := map[string]string{}
 	afterVersions := map[string]string{}
@@ -469,15 +539,17 @@ func diffGoVersions(before, after []goVersion) []string {
 		return version
 	}
 
-	var changes []string
+	var changes []change
 	for _, name := range names {
 		beforeVersion, afterVersion := beforeVersions[name], afterVersions[name]
 		if beforeVersion == afterVersion {
 			continue
 		}
-		changes = append(changes, fmt.Sprintf(
-			"- %#q: %s → %s", name, orNone(beforeVersion), orNone(afterVersion),
-		))
+		changes = append(changes, change{
+			name:   name,
+			before: orNone(beforeVersion),
+			after:  orNone(afterVersion),
+		})
 	}
 
 	return changes

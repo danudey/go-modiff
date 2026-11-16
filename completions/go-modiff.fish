@@ -18,6 +18,7 @@ complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l header-level -s 
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l include-indirect -s I -d 'include indirect imports'
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l include-empty -s e -d 'include empty added/changed/removed sections'
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l include-go -s g -d 'include changes of the go version'
+complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l table -s T -d 'print markdown tables instead of lists'
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l go-version-source -r -d 'where the go versions are taken from: \'go.mod\' for its go and toolchain directives, \'installed\' for the output of \'go version\' within each revision'
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l debug -s d -d 'enable debug output'
 complete -c go-modiff -n '__fish_go-modiff_no_subcommand' -f -l help -s h -d 'show help'

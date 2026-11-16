@@ -118,6 +118,26 @@ other than the one in `go.mod`, use `--go-version-source installed`. The tool
 then runs `go version` in each revision and shows the toolchain that builds it.
 This includes the toolchain switching which `GOTOOLCHAIN` controls.
 
+### Tables
+
+Use `--table, -T` to print each section as a GitHub flavored markdown table
+instead of a list. The table has one column each for the module, its old version
+and its new version. Added modules leave the old version empty, removed ones the
+new version:
+
+```markdown
+# Dependencies
+
+## Changed
+
+| Module | Old version | New version |
+| --- | --- | --- |
+| `github.com/bombsimon/wsl` | v1.2.1 | v1.2.5 |
+```
+
+With `--link`, the old version links to its commit and the new version links to
+the comparison of both versions.
+
 ### Arguments
 
 The following command line arguments are currently supported:
@@ -133,6 +153,7 @@ The following command line arguments are currently supported:
 | `--include-indirect, -I` | include indirect imports (default: false)                                   |
 | `--include-empty, -e` | include empty added/changed/removed sections (default: false)                   |
 | `--include-go, -g`    | include changes of the go version (default: false)                              |
+| `--table, -T`         | print markdown tables instead of lists (default: false)                         |
 | `--go-version-source` | where the go versions come from: `go.mod` or `installed` (default: "go.mod")    |
 | `--debug, -d`         | enable debug output (default: false)                                           |
 
@@ -187,6 +208,7 @@ workflow.
 | `include-indirect`    | `false`            | include indirect imports                                                 |
 | `include-empty`       | `false`            | include empty added/changed/removed sections                             |
 | `include-go`          | `false`            | include changes of the go version                                        |
+| `table`               | `false`            | print markdown tables instead of lists                                   |
 | `go-version-source`   | `go.mod`           | where the go versions come from: `go.mod` or `installed`                 |
 | `debug`               | `false`            | enable debug output, also enabled by workflow debug logging              |
 | `fetch-history`       | `true`             | fetch the full history and all tags if the checkout lacks them            |

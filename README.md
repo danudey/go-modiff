@@ -121,9 +121,9 @@ This includes the toolchain switching which `GOTOOLCHAIN` controls.
 ### Tables
 
 Use `--table, -T` to print each section as a GitHub flavored markdown table
-instead of a list. The table has one column each for the module, its old version
-and its new version. Added modules leave the old version empty, removed ones the
-new version:
+instead of a list. Tables only show the columns relevant to their section: added
+modules list their new version, removed modules their old version, and changed
+modules both:
 
 ```markdown
 # Dependencies
@@ -135,8 +135,9 @@ new version:
 | `github.com/bombsimon/wsl` | v1.2.1 | v1.2.5 |
 ```
 
-With `--link`, the old version links to its commit and the new version links to
-the comparison of both versions.
+With `--link`, each version links to its commit, and changed modules get an
+extra `Diff` column linking to the comparison of both versions. The column is
+left out if no module in the section has a comparison.
 
 ### Arguments
 

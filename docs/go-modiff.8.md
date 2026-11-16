@@ -33,7 +33,7 @@ Command line tool for diffing go module dependency changes between versions
 
 **--debug, -d**: enable debug output
 
-**--from, -f**="": the start of the comparison, any valid git rev (default: "master")
+**--from, -f**="": the start of the comparison, a git ref name (required)
 
 **--go-version-source**="": where the go versions are taken from: 'go.mod' for its go and toolchain directives, 'installed' for the output of 'go version' within each revision (default: "go.mod")
 
@@ -55,7 +55,7 @@ Command line tool for diffing go module dependency changes between versions
 
 **--table, -T**: print markdown tables instead of lists
 
-**--to, -t**="": the end of the comparison, any valid git rev (default: "master")
+**--to, -t**="": the end of the comparison, a git ref name (required)
 
 **--version, -v**: print the version
 
@@ -76,16 +76,16 @@ generate the markdown or man page documentation and print it to stdout
 
 Shows a list of commands or help for one command
 
-## fish, f
+## help, h
 
-generate the fish shell completion and print it to stdout
+Shows a list of commands or help for one command
+
+## completion
+
+Output shell completion script for bash, zsh, fish, or Powershell
 
 **--help, -h**: show help
 
 ### help, h
-
-Shows a list of commands or help for one command
-
-## help, h
 
 Shows a list of commands or help for one command

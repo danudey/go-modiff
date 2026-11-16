@@ -50,7 +50,7 @@ Command line tool for diffing go module dependency changes between versions
 \fB--debug, -d\fP: enable debug output
 
 .PP
-\fB--from, -f\fP="": the start of the comparison, any valid git rev (default: "master")
+\fB--from, -f\fP="": the start of the comparison, a git ref name (required)
 
 .PP
 \fB--go-version-source\fP="": where the go versions are taken from: 'go.mod' for its go and toolchain directives, 'installed' for the output of 'go version' within each revision (default: "go.mod")
@@ -83,7 +83,7 @@ Command line tool for diffing go module dependency changes between versions
 \fB--table, -T\fP: print markdown tables instead of lists
 
 .PP
-\fB--to, -t\fP="": the end of the comparison, any valid git rev (default: "master")
+\fB--to, -t\fP="": the end of the comparison, a git ref name (required)
 
 .PP
 \fB--version, -v\fP: print the version
@@ -107,17 +107,17 @@ generate the markdown or man page documentation and print it to stdout
 .PP
 Shows a list of commands or help for one command
 
-.SH fish, f
+.SH help, h
 .PP
-generate the fish shell completion and print it to stdout
+Shows a list of commands or help for one command
+
+.SH completion
+.PP
+Output shell completion script for bash, zsh, fish, or Powershell
 
 .PP
 \fB--help, -h\fP: show help
 
 .SS help, h
-.PP
-Shows a list of commands or help for one command
-
-.SH help, h
 .PP
 Shows a list of commands or help for one command

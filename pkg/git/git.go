@@ -3,6 +3,7 @@ package git
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -113,6 +114,73 @@ func NormalizeRemoteURL(remoteURL string) string {
 	}
 
 	return host + "/" + path
+}
+
+// ValidateRefName checks that the provided name follows git's rules for ref
+// names, as enforced by `git check-ref-format --allow-onelevel`. Names which
+// start with a `-` are rejected as well, because git would treat them as
+// command line options.
+func ValidateRefName(name string) error {
+	if err := checkRefName(name); err != nil {
+		return fmt.Errorf("invalid git ref name %q: %w", name, err)
+	}
+
+	return nil
+}
+
+func checkRefName(name string) error {
+	switch {
+	case name == "":
+		return errors.New("it must not be empty")
+	case name == "@":
+		return errors.New("it must not be the single character '@'")
+	case strings.HasPrefix(name, "-"):
+		return errors.New("it must not begin with '-'")
+	case strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/"):
+		return errors.New("it must not begin or end with '/'")
+	case strings.HasSuffix(name, "."):
+		return errors.New("it must not end with '.'")
+	case strings.Contains(name, "//"):
+		return errors.New("it must not contain consecutive slashes")
+	case strings.Contains(name, ".."):
+		return errors.New("it must not contain '..'")
+	case strings.Contains(name, "@{"):
+		return errors.New("it must not contain '@{'")
+	}
+
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return errors.New("it must not contain control characters")
+		}
+		if strings.ContainsRune(" ~^:?*[\\", r) {
+			return fmt.Errorf("it must not contain %q", r)
+		}
+	}
+
+	for component := range strings.SplitSeq(name, "/") {
+		if strings.HasPrefix(component, ".") {
+			return errors.New("no '/'-separated component may begin with '.'")
+		}
+		if strings.HasSuffix(component, ".lock") {
+			return errors.New("no '/'-separated component may end with '.lock'")
+		}
+	}
+
+	return nil
+}
+
+// VerifyRef checks that the provided ref exists in the repository at repoDir
+// and resolves to a commit
+func VerifyRef(repoDir, gitRef string) error {
+	if _, err := RunOutput(
+		repoDir, "rev-parse", "--verify", "--quiet", "--end-of-options", gitRef+"^{commit}",
+	); err != nil {
+		logrus.WithError(err).Debugf("Unable to resolve git ref %q", gitRef)
+
+		return fmt.Errorf("git ref %q does not exist in %s", gitRef, repoDir)
+	}
+
+	return nil
 }
 
 // AddWorktree creates a new Git worktree from the provided repository at the provided destination

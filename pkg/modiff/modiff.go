@@ -100,6 +100,33 @@ func NewConfig(
 	}
 }
 
+// validate checks the configuration for errors which can be detected without
+// touching any repository
+func (c *Config) validate() error {
+	for _, ref := range []struct{ name, value string }{
+		{"from", c.from},
+		{"to", c.to},
+	} {
+		if ref.value == "" {
+			return fmt.Errorf("the `%s` git ref has to be specified", ref.name)
+		}
+		if err := git.ValidateRefName(ref.value); err != nil {
+			return fmt.Errorf("the `%s` git ref is invalid: %w", ref.name, err)
+		}
+	}
+	if c.from == c.to {
+		return fmt.Errorf("`to` and `from` git refs cannot be equal")
+	}
+	if c.goSource != GoVersionSourceModFile && c.goSource != GoVersionSourceInstalled {
+		return fmt.Errorf(
+			"unknown go version source %q, expected %q or %q",
+			c.goSource, GoVersionSourceModFile, GoVersionSourceInstalled,
+		)
+	}
+
+	return nil
+}
+
 // DetectLocalRepository inspects the provided directory and returns the
 // repository name as well as the top level path of the git repository it
 // belongs to. It fails if the directory is not part of a git repository or if
@@ -147,6 +174,11 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		return "", fmt.Errorf("configuration cannot be nil")
 	}
 
+	// Validate the flags before doing any work
+	if err := config.validate(); err != nil {
+		return "", err
+	}
+
 	// Work on a copy so that auto detection does not modify the caller's config
 	cfg := *config
 
@@ -177,17 +209,6 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		}
 	}
 
-	// Validate the flags
-	if cfg.from == cfg.to {
-		return "", fmt.Errorf("`to` and `from` git refs cannot be equal")
-	}
-	if cfg.goSource != GoVersionSourceModFile && cfg.goSource != GoVersionSourceInstalled {
-		return "", fmt.Errorf(
-			"unknown go version source %q, expected %q or %q",
-			cfg.goSource, GoVersionSourceModFile, GoVersionSourceInstalled,
-		)
-	}
-
 	// Prepare the environment
 	dir, err := os.MkdirTemp("", "go-modiff")
 	if err != nil {
@@ -207,6 +228,13 @@ func Run(ctx context.Context, config *Config) (string, error) {
 		logrus.Infof("Cloning base repository for %s to %s", cfg.repository, referenceRepo)
 		if err := git.Run(dir, "clone", "--filter=blob:none", "--bare", toURL(cfg.repository), referenceRepo); err != nil {
 			return "", fmt.Errorf("unable to run git command: %w", err)
+		}
+	}
+
+	// Make sure both refs exist before setting up any worktree
+	for _, gitRef := range []string{cfg.from, cfg.to} {
+		if err := git.VerifyRef(referenceRepo, gitRef); err != nil {
+			return "", fmt.Errorf("unable to set up the comparison: %w", err)
 		}
 	}
 

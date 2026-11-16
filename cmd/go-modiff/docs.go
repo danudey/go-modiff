@@ -10,7 +10,6 @@ import (
 
 const (
 	docsCommandName = "docs"
-	fishCommandName = "fish"
 	markdownArg     = "markdown"
 	manArg          = "man"
 
@@ -18,8 +17,8 @@ const (
 	manSection = 8
 )
 
-// docsCommands returns the commands generating the documentation and the shell
-// completions of the provided root command
+// docsCommands returns the commands generating the documentation of the
+// provided root command
 func docsCommands(root *cli.Command) []*cli.Command {
 	return []*cli.Command{
 		{
@@ -56,21 +55,6 @@ func docsCommands(root *cli.Command) []*cli.Command {
 				}
 				if err != nil {
 					return fmt.Errorf("unable to generate the documentation: %w", err)
-				}
-
-				fmt.Print(res)
-
-				return nil
-			},
-		},
-		{
-			Name:    fishCommandName,
-			Aliases: []string{"f"},
-			Usage:   "generate the fish shell completion and print it to stdout",
-			Action: func(_ context.Context, _ *cli.Command) error {
-				res, err := root.ToFishCompletion()
-				if err != nil {
-					return fmt.Errorf("unable to generate the fish completion: %w", err)
 				}
 
 				fmt.Print(res)

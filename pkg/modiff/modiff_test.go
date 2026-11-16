@@ -170,21 +170,59 @@ var _ = t.Describe("Run", func() {
 		Expect(res).To(Equal(expected))
 	})
 
-	It("should fail if 'from' equals 'to'", func() {
+	It("should fail if 'from' is missing", func() {
 		// Given
-		config := modiff.NewConfig(repo, topLevel, "", "", true, false, false, false, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, "", to, true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
 
 		// Then
-		Expect(err).To(HaveOccurred())
+		Expect(err).To(MatchError(ContainSubstring("`from` git ref has to be specified")))
 		Expect(res).To(BeEmpty())
 	})
 
-	It("should fail if repository is not clone-able", func() {
+	It("should fail if 'to' is missing", func() {
 		// Given
-		config := modiff.NewConfig("invalid", topLevel, from, "", true, false, false, false, false, "", 1)
+		config := modiff.NewConfig(repo, topLevel, from, "", true, false, false, false, false, "", 1)
+
+		// When
+		res, err := modiff.Run(context.Background(), config)
+
+		// Then
+		Expect(err).To(MatchError(ContainSubstring("`to` git ref has to be specified")))
+		Expect(res).To(BeEmpty())
+	})
+
+	It("should fail if a ref name is invalid", func() {
+		// Given
+		config := modiff.NewConfig(repo, topLevel, from, "a..b", true, false, false, false, false, "", 1)
+
+		// When
+		res, err := modiff.Run(context.Background(), config)
+
+		// Then
+		Expect(err).To(MatchError(ContainSubstring("`to` git ref is invalid")))
+		Expect(res).To(BeEmpty())
+	})
+
+	It("should fail if a ref does not exist", func() {
+		// Given
+		config := modiff.NewConfig(
+			repo, topLevel, from, "does-not-exist", true, false, false, false, false, "", 1,
+		)
+
+		// When
+		res, err := modiff.Run(context.Background(), config)
+
+		// Then
+		Expect(err).To(MatchError(ContainSubstring(`"does-not-exist" does not exist`)))
+		Expect(res).To(BeEmpty())
+	})
+
+	It("should fail if 'from' equals 'to'", func() {
+		// Given
+		config := modiff.NewConfig(repo, topLevel, from, from, true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)
@@ -196,7 +234,7 @@ var _ = t.Describe("Run", func() {
 
 	It("should fail if the specified reference repository does not exist", func() {
 		// Given
-		config := modiff.NewConfig("", "invalid", from, "", true, false, false, false, false, "", 1)
+		config := modiff.NewConfig("", "invalid", from, to, true, false, false, false, false, "", 1)
 
 		// When
 		res, err := modiff.Run(context.Background(), config)

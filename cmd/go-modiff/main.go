@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/saschagrunert/ccli/v3"
+	"github.com/saschagrunert/go-modiff/pkg/git"
 	"github.com/saschagrunert/go-modiff/pkg/modiff"
 	"github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v3"
@@ -41,6 +42,11 @@ func main() {
 		"dependency changes between versions"
 	app.UsageText = app.Usage
 	app.UseShortOptionHandling = true
+	app.EnableShellCompletion = true
+	app.ConfigureShellCompletionCommand = func(c *cli.Command) {
+		// The completion command is hidden by default, list it in the help
+		c.Hidden = false
+	}
 	app.Flags = []cli.Flag{
 		&cli.StringFlag{
 			Name:    repositoryArg,
@@ -57,16 +63,16 @@ func main() {
 		&cli.StringFlag{
 			Name:      fromArg,
 			Aliases:   []string{"f"},
-			Value:     "master",
-			Usage:     "the start of the comparison, any valid git rev",
+			Usage:     "the start of the comparison, a git ref name (required)",
 			TakesFile: false,
+			Validator: git.ValidateRefName,
 		},
 		&cli.StringFlag{
 			Name:      toArg,
 			Aliases:   []string{"t"},
-			Value:     "master",
-			Usage:     "the end of the comparison, any valid git rev",
+			Usage:     "the end of the comparison, a git ref name (required)",
 			TakesFile: false,
+			Validator: git.ValidateRefName,
 		},
 		&cli.BoolFlag{
 			Name:    linkArg,

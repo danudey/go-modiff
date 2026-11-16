@@ -146,8 +146,8 @@ The following command line arguments are currently supported:
 | --------------------- | ------------------------------------------------------------------------------ |
 | `--repository, -r`    | repository to be used, like: github.com/owner/repo (default: the local module)  |
 | `--reference-clone`   | path to an existing clone to use as the reference (default: the local one)      |
-| `--from, -f`          | the start of the comparison (any valid git rev) (default: "master")            |
-| `--to, -t`            | the end of the comparison (any valid git rev) (default: "master")              |
+| `--from, -f`          | the start of the comparison, a git ref name (required)                          |
+| `--to, -t`            | the end of the comparison, a git ref name (required)                            |
 | `--link, -l`          | add diff links to the markdown output (default: false)                          |
 | `--header-level, -i`  | add a higher markdown header level depth (default: 1)                           |
 | `--include-indirect, -I` | include indirect imports (default: false)                                   |

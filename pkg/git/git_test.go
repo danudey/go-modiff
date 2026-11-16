@@ -127,6 +127,70 @@ var _ = Describe("git", func() {
 		)
 	})
 
+	Describe("ValidateRefName", func() {
+		DescribeTable("accepts valid ref names",
+			func(name string) {
+				Expect(git.ValidateRefName(name)).To(Succeed())
+			},
+			Entry("tag", "v1.2.3"),
+			Entry("branch", "main"),
+			Entry("hierarchical branch", "feature/foo-bar_baz"),
+			Entry("remote branch", "origin/main"),
+			Entry("commit hash", "124af63"),
+			Entry("HEAD", "HEAD"),
+			Entry("contains @", "foo@bar"),
+			Entry("contains dot", "release-1.0"),
+		)
+
+		DescribeTable("rejects invalid ref names",
+			func(name string) {
+				Expect(git.ValidateRefName(name)).ToNot(Succeed())
+			},
+			Entry("empty", ""),
+			Entry("single @", "@"),
+			Entry("leading dash", "-x"),
+			Entry("leading slash", "/main"),
+			Entry("trailing slash", "main/"),
+			Entry("trailing dot", "main."),
+			Entry("consecutive slashes", "foo//bar"),
+			Entry("double dot", "a..b"),
+			Entry("reflog syntax", "main@{1}"),
+			Entry("space", "foo bar"),
+			Entry("tilde", "HEAD~1"),
+			Entry("caret", "HEAD^"),
+			Entry("colon", "foo:bar"),
+			Entry("question mark", "foo?"),
+			Entry("asterisk", "foo*"),
+			Entry("open bracket", "foo[1]"),
+			Entry("backslash", `foo\bar`),
+			Entry("control character", "foo\tbar"),
+			Entry("DEL", "foo\x7fbar"),
+			Entry("component beginning with dot", "foo/.bar"),
+			Entry("leading dot", ".foo"),
+			Entry("component ending with .lock", "foo.lock/bar"),
+			Entry("ending with .lock", "foo.lock"),
+		)
+	})
+
+	Describe("VerifyRef", func() {
+		args := []any{"rev-parse", "--verify", "--quiet", "--end-of-options", "v1.0.0^{commit}"}
+
+		It("succeeds if the ref resolves to a commit", func() {
+			runner.EXPECT().RunCmdOutput("/repo", "git", args...).
+				Return([]byte("abc123\n"), nil).Once()
+
+			Expect(git.VerifyRef("/repo", "v1.0.0")).To(Succeed())
+		})
+
+		It("fails if the ref does not exist", func() {
+			runner.EXPECT().RunCmdOutput("/repo", "git", args...).
+				Return(nil, errors.New("exit status 1")).Once()
+
+			err := git.VerifyRef("/repo", "v1.0.0")
+			Expect(err).To(MatchError(ContainSubstring(`"v1.0.0" does not exist`)))
+		})
+	})
+
 	Describe("AddWorktree", func() {
 		It("invokes `git worktree add --detach <dest> <ref>`", func() {
 			runner.EXPECT().

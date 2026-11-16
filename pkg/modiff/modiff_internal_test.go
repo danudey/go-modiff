@@ -13,7 +13,11 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const exampleModule = "github.com/example/repo"
+const (
+	exampleModule = "github.com/example/repo"
+	goVersion125  = "1.25"
+	goVersion126  = "1.26"
+)
 
 func TestGetGoProxyModInfo(t *testing.T) {
 	module := exampleModule
@@ -107,14 +111,14 @@ func TestDiffModulesNoChanges(t *testing.T) {
 	t.Run("prints a message instead of a lone header", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		g.Expect(diffModules(context.Background(), modules{}, nil, false, false, false, 1)).
+		g.Expect(diffModules(context.Background(), modules{}, nil, false, renderOptions{headerLevel: 1})).
 			To(Equal("_No dependency changes._\n"))
 	})
 
 	t.Run("keeps the empty sections when requested", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(context.Background(), modules{}, nil, false, false, true, 1)
+		res := diffModules(context.Background(), modules{}, nil, false, renderOptions{empty: true, headerLevel: 1})
 		g.Expect(res).To(HavePrefix("# Dependencies\n"))
 		g.Expect(res).To(ContainSubstring("## Added"))
 		g.Expect(res).To(ContainSubstring("## Changed"))
@@ -128,21 +132,27 @@ func TestDiffModulesGoSection(t *testing.T) {
 	t.Run("prints the go changes first", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(context.Background(), modules{}, []string{"- `go`: 1.25 → 1.26"}, true, false, false, 1)
+		res := diffModules(
+			context.Background(), modules{}, []change{{name: "go", before: goVersion125, after: goVersion126}},
+			false, renderOptions{includeGo: true, headerLevel: 1},
+		)
 		g.Expect(res).To(Equal("# Dependencies\n\n## Go\n- `go`: 1.25 → 1.26\n"))
 	})
 
 	t.Run("keeps the empty go section when requested", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(context.Background(), modules{}, nil, true, false, true, 1)
+		res := diffModules(
+			context.Background(), modules{}, nil, false,
+			renderOptions{includeGo: true, empty: true, headerLevel: 1},
+		)
 		g.Expect(res).To(HavePrefix("# Dependencies\n\n## Go\n_Nothing has changed._\n"))
 	})
 
 	t.Run("omits the go section if not included", func(t *testing.T) {
 		t.Parallel()
 		g := NewGomegaWithT(t)
-		res := diffModules(context.Background(), modules{}, nil, false, false, true, 1)
+		res := diffModules(context.Background(), modules{}, nil, false, renderOptions{empty: true, headerLevel: 1})
 		g.Expect(res).ToNot(ContainSubstring("## Go"))
 	})
 }
@@ -168,7 +178,7 @@ func TestDiffModulesPseudoVersions(t *testing.T) {
 		linkPrefix:    exampleModule,
 		name:          exampleModule,
 	}}
-	res := diffModules(context.Background(), mods, nil, false, true, false, 1)
+	res := diffModules(context.Background(), mods, nil, true, renderOptions{headerLevel: 1})
 
 	// The proxy cannot resolve abbreviated hashes, so it needs the full versions
 	g.Expect(requested).To(ConsistOf(
@@ -179,18 +189,83 @@ func TestDiffModulesPseudoVersions(t *testing.T) {
 	g.Expect(res).To(ContainSubstring("[afd174a → 3dc84a4]("))
 }
 
+func TestRenderMarkdownTable(t *testing.T) {
+	t.Parallel()
+
+	added := []change{{name: "github.com/foo/added", after: "v1.0.0"}}
+	changed := []change{{
+		name: "github.com/foo/changed", before: "v1.0.0", after: "v1.1.0",
+		url:       "https://github.com/foo/changed",
+		beforeURL: "https://github.com/foo/changed/commit/a",
+		afterURL:  "https://github.com/foo/changed/commit/b",
+		// Pipes have to be escaped, even within links
+		compareURL: "https://github.com/foo/changed/compare/a...b|c",
+	}}
+	removed := []change{{name: "github.com/foo/removed", before: "v2.0.0"}}
+	goChanges := []change{{name: "go", before: goVersion125, after: goVersion126}}
+
+	t.Run("renders a table per section", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		res := renderMarkdown(goChanges, added, changed, removed, renderOptions{
+			includeGo: true, table: true, headerLevel: 2,
+		})
+		g.Expect(res).To(Equal(`## Dependencies
+
+### Go
+
+| Name | Old version | New version |
+| --- | --- | --- |
+| ` + "`go`" + ` | 1.25 | 1.26 |
+
+### Added
+
+| Module | Old version | New version |
+| --- | --- | --- |
+| ` + "`github.com/foo/added`" + ` |  | v1.0.0 |
+
+### Changed
+
+| Module | Old version | New version |
+| --- | --- | --- |
+| [` + "`github.com/foo/changed`" + `](https://github.com/foo/changed) | ` +
+			`[v1.0.0](https://github.com/foo/changed/commit/a) | ` +
+			`[v1.1.0](https://github.com/foo/changed/compare/a...b\|c) |
+
+### Removed
+
+| Module | Old version | New version |
+| --- | --- | --- |
+| ` + "`github.com/foo/removed`" + ` | v2.0.0 |  |
+`))
+	})
+
+	t.Run("links the new version to its commit without a comparison", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		c := changed[0]
+		c.compareURL = ""
+		g.Expect(c.tableRow()).To(HaveSuffix("| [v1.1.0](https://github.com/foo/changed/commit/b) |"))
+	})
+
+	t.Run("keeps the empty section message", func(t *testing.T) {
+		t.Parallel()
+		g := NewGomegaWithT(t)
+		res := renderMarkdown(nil, nil, nil, nil, renderOptions{empty: true, table: true, headerLevel: 1})
+		g.Expect(res).To(ContainSubstring("## Added\n_Nothing has changed._\n"))
+		g.Expect(res).ToNot(ContainSubstring("|"))
+	})
+}
+
 func TestDiffGoVersions(t *testing.T) {
 	t.Parallel()
 
-	const (
-		goVersion125 = "1.25"
-		toolchain126 = "go1.26.0"
-	)
+	const toolchain126 = "go1.26.0"
 
 	for _, tc := range []struct {
 		name          string
 		before, after []goVersion
-		expected      []string
+		expected      []change
 	}{
 		{
 			name:     "unchanged",
@@ -199,22 +274,25 @@ func TestDiffGoVersions(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name:     "changed",
-			before:   []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, "go1.25.1"}},
-			after:    []goVersion{{goVersionName, "1.26"}, {toolchainVersionName, toolchain126}},
-			expected: []string{"- `go`: 1.25 → 1.26", "- `toolchain`: go1.25.1 → go1.26.0"},
+			name:   "changed",
+			before: []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, "go1.25.1"}},
+			after:  []goVersion{{goVersionName, goVersion126}, {toolchainVersionName, toolchain126}},
+			expected: []change{
+				{name: goVersionName, before: goVersion125, after: goVersion126},
+				{name: toolchainVersionName, before: "go1.25.1", after: toolchain126},
+			},
 		},
 		{
 			name:     "added toolchain",
 			before:   []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, ""}},
 			after:    []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, toolchain126}},
-			expected: []string{"- `toolchain`: none → go1.26.0"},
+			expected: []change{{name: toolchainVersionName, before: "none", after: toolchain126}},
 		},
 		{
 			name:     "removed toolchain",
 			before:   []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, toolchain126}},
 			after:    []goVersion{{goVersionName, goVersion125}, {toolchainVersionName, ""}},
-			expected: []string{"- `toolchain`: go1.26.0 → none"},
+			expected: []change{{name: toolchainVersionName, before: toolchain126, after: "none"}},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -242,7 +320,7 @@ func TestNewConfig(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	// Empty referenceClone stays empty
-	cfg := NewConfig("github.com/foo/bar", "", "v1", "v2", true, false, true, false, "", 2)
+	cfg := NewConfig("github.com/foo/bar", "", "v1", "v2", true, false, true, false, true, "", 2)
 	g.Expect(cfg).ToNot(BeNil())
 	g.Expect(cfg.repository).To(Equal("github.com/foo/bar"))
 	g.Expect(cfg.referenceClone).To(Equal(""))
@@ -252,10 +330,11 @@ func TestNewConfig(t *testing.T) {
 	g.Expect(cfg.indirect).To(BeFalse())
 	g.Expect(cfg.empty).To(BeTrue())
 	g.Expect(cfg.includeGo).To(BeFalse())
+	g.Expect(cfg.table).To(BeTrue())
 	g.Expect(cfg.goSource).To(Equal(GoVersionSourceModFile))
 	g.Expect(cfg.headerLevel).To(Equal(uint(2)))
 
 	// Relative referenceClone path is resolved to absolute
-	cfg = NewConfig("github.com/foo/bar", ".", "v1", "v2", false, true, false, false, "", 1)
+	cfg = NewConfig("github.com/foo/bar", ".", "v1", "v2", false, true, false, false, false, "", 1)
 	g.Expect(filepath.IsAbs(cfg.referenceClone)).To(BeTrue())
 }

@@ -21,6 +21,7 @@ const (
 	includeIndirect      = "include-indirect"
 	includeEmptySections = "include-empty"
 	includeGoArg         = "include-go"
+	tableArg             = "table"
 	goVersionSourceArg   = "go-version-source"
 	debugFlag            = "debug"
 )
@@ -96,6 +97,12 @@ func main() {
 			Value:   false,
 			Usage:   "include changes of the go version",
 		},
+		&cli.BoolFlag{
+			Name:    tableArg,
+			Aliases: []string{"T"},
+			Value:   false,
+			Usage:   "print markdown tables instead of lists",
+		},
 		&cli.StringFlag{
 			Name:  goVersionSourceArg,
 			Value: string(modiff.GoVersionSourceModFile),
@@ -128,6 +135,7 @@ func main() {
 			c.Bool(includeIndirect),
 			c.Bool(includeEmptySections),
 			c.Bool(includeGoArg),
+			c.Bool(tableArg),
 			modiff.GoVersionSource(c.String(goVersionSourceArg)),
 			c.Uint(headerLevelArg),
 		)

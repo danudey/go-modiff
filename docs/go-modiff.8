@@ -25,6 +25,7 @@ go-modiff
 [--link|-l]
 [--reference-clone]=[value]
 [--repository|-r]=[value]
+[--table|-T]
 [--to|-t]=[value]
 [--version|-v]
 
@@ -77,6 +78,9 @@ Command line tool for diffing go module dependency changes between versions
 
 .PP
 \fB--repository, -r\fP="": repository to be used, like: github.com/owner/repo (defaults to the go module of the local git repository)
+
+.PP
+\fB--table, -T\fP: print markdown tables instead of lists
 
 .PP
 \fB--to, -t\fP="": the end of the comparison, any valid git rev (default: "master")

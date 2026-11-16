@@ -70,6 +70,10 @@ inputs:
     description: Include changes of the go version.
     required: false
     default: 'false'
+  table:
+    description: Print markdown tables instead of lists.
+    required: false
+    default: 'false'
   go-version-source:
     description: >-
       Where the go versions come from. `go.mod` uses the `go` and `toolchain`
@@ -237,6 +241,7 @@ runs:
         INCLUDE_INDIRECT: ${{ inputs.include-indirect }}
         INCLUDE_EMPTY: ${{ inputs.include-empty }}
         INCLUDE_GO: ${{ inputs.include-go }}
+        TABLE: ${{ inputs.table }}
         GO_VERSION_SOURCE: ${{ inputs.go-version-source }}
         DEBUG: ${{ inputs.debug }}
         OUTPUT_FILE: ${{ inputs.output-file }}
@@ -263,6 +268,9 @@ runs:
         fi
         if [[ "$INCLUDE_GO" == "true" ]]; then
           args+=(--include-go)
+        fi
+        if [[ "$TABLE" == "true" ]]; then
+          args+=(--table)
         fi
         # RUNNER_DEBUG is set when the workflow is run with debug logging, so a
         # re-run with debug logging enabled turns on debug output here too
